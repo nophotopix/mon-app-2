@@ -1,0 +1,30 @@
+{
+  "summary": "Frontend-only iteration 2 test focused on new pack pricing & UI changes. All 12 review-request checks PASSED in a single Playwright run against the production preview URL.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "PaymentBar", "issues": ["Eyebrow label still hardcoded as '3 € / photo' even when pack pricing brings effective per-photo cost lower (e.g. 2.40 € for pack of 5). Cosmetic only — total + savings badge are correct."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_api.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "(Optional) Update PaymentBar eyebrow '3 € / photo' to reflect computed effective price-per-photo or remove it to avoid contradicting the savings badge."
+  ],
+  "critical_code_review_comments": [
+    "pricing.js: clean DP implementation; verified N=1→3, N=3→8, N=5→12, N=6→15 in live UI.",
+    "Gallery.jsx: all new sections (hero tagline, pack-cards, how-it-works, no-paypal-cta, footer) carry proper data-testid attributes.",
+    "PaymentBar.jsx: 'savings-badge' correctly hidden when savings=0 (verified for 1 photo) and visible for 3/5/6 photos.",
+    "Header.jsx: 4 nav links present with data-testid; nav-about uses hidden md:inline-block so 'Contact' link is hidden on small screens — intentional but worth a note.",
+    "Hardcoded asset URLs (Emergent customer-assets) and tel:0760599312 are duplicated in Gallery & Header/Footer; consider centralising in a constants file."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (not retested)", "frontend": "100%"},
+  "test_credentials": "Admin password: 97140 (unchanged)",
+  "seed_data_creation": "None. 9 photos already in DB (8 seeded + 1 left from previous iteration test? — backend seed=8, so possibly +1 leftover. Non-blocking.)",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All new testids: hero-logo, hero-tagline, hero-eyebrow, pack-1, pack-3, pack-5, how-it-works, contact-phone-cta, footer-phone, nav-gallery, nav-how, nav-about, nav-admin, savings-badge, total-price, selection-count, paypal-pay-btn, clear-selection-btn, payment-bar. Verified pack DP totals: 1→3€, 3→8€ (-1), 5→12€ (-3), 6→15€ (-3). PayPal URL pattern: https://paypal.me/nophotopix/{total}EUR.",
+  "rca of the issue": "No issues found."
+}

@@ -1,0 +1,135 @@
+{
+  "theme_and_archetype": {
+    "domain": "Photography Portfolio & Ecommerce-Lite",
+    "theme": "DARK",
+    "archetype": "5 (Jewel & Luxury)",
+    "description": "Elegant, cinematic, moody, high-end photography gallery. Black and white aesthetic."
+  },
+  "typography": {
+    "font_families": {
+      "heading": "Cormorant Garamond",
+      "body": "Outfit",
+      "mono": "JetBrains Mono"
+    },
+    "hierarchy": {
+      "h1": "text-4xl sm:text-5xl lg:text-6xl tracking-tighter font-light",
+      "h2": "text-2xl sm:text-3xl lg:text-4xl tracking-tight font-light",
+      "h3": "text-xl sm:text-2xl font-light",
+      "body": "text-base leading-relaxed font-light",
+      "small_accent": "text-sm uppercase tracking-[0.2em]"
+    },
+    "installation_commands": "yarn add @fontsource/cormorant-garamond @fontsource/outfit @fontsource/jetbrains-mono"
+  },
+  "colors": {
+    "background": {
+      "base": "#050505",
+      "surface": "#0A0A0A",
+      "surface_hover": "#111111",
+      "glass": "rgba(5, 5, 5, 0.7)"
+    },
+    "text": {
+      "primary": "#FFFFFF",
+      "secondary": "#A3A3A3",
+      "muted": "#525252",
+      "inverse": "#050505"
+    },
+    "border": {
+      "default": "rgba(255, 255, 255, 0.1)",
+      "hover": "rgba(255, 255, 255, 0.3)"
+    },
+    "accent": {
+      "primary": "#FFFFFF",
+      "primary_hover": "#EAEAEA",
+      "danger": "#FF3B30",
+      "danger_hover": "#FF453A"
+    }
+  },
+  "layout_and_spacing": {
+    "spacing_scale": "Generous (p-6, p-8, p-12, p-24)",
+    "container": "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8",
+    "gallery_grid": "columns-1 sm:columns-2 lg:columns-3 xl:columns-4 gap-6 space-y-6",
+    "alignment": "Optical alignment, text left-aligned, asymmetry favored in headers."
+  },
+  "surfaces_and_micro_themes": {
+    "header": {
+      "style": "Crystal Glass",
+      "classes": "sticky top-0 z-50 backdrop-blur-2xl bg-[#050505]/70 border-b border-white/10"
+    },
+    "floating_payment_bar": {
+      "style": "Crystal Glass",
+      "classes": "fixed bottom-6 left-1/2 -translate-x-1/2 z-50 backdrop-blur-2xl bg-[#0A0A0A]/80 border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)] rounded-full px-6 py-4 flex items-center gap-6"
+    },
+    "photo_card": {
+      "style": "Flat Solid (No Card)",
+      "classes": "relative group overflow-hidden bg-[#0A0A0A] break-inside-avoid mb-6 rounded-sm"
+    }
+  },
+  "interactions_and_motion": {
+    "photo_hover": "Image scales up slightly (scale-105) over 0.5s ease-out. Overlay darkens (bg-black/30) to reveal heart icon.",
+    "heart_toggle": "Scale pop (scale-110 then scale-100) on click. Changes from white outline to solid white (or solid red if preferred, but white fits the minimal theme better).",
+    "payment_bar_entrance": "Slides up from bottom (translate-y-8 to translate-y-0) and fades in (opacity-0 to opacity-100) when selection count > 0.",
+    "button_hover": "Background color shifts slightly, text color remains high contrast. Transform -translate-y-0.5."
+  },
+  "components": {
+    "icons": {
+      "library": "@phosphor-icons/react",
+      "installation": "yarn add @phosphor-icons/react"
+    },
+    "ui_library": "Shadcn UI (highly customized)",
+    "specific_overrides": {
+      "button": "rounded-none or minimal rounded-sm. No heavy gradients. 1px solid border for secondary buttons. Solid white bg with black text for primary (PayPal) button.",
+      "dialog": "Admin login modal - Glassmorphism backdrop, solid dark background for modal content, strict 1px border."
+    }
+  },
+  "media_assets": {
+    "gallery_images": [
+      {
+        "url": "https://images.unsplash.com/photo-1569525987258-6aa03a5e4926?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzNzl8MHwxfHNlYXJjaHwzfHxibGFjayUyMGFuZCUyMHdoaXRlJTIwYXJjaGl0ZWN0dXJlJTIwbWluaW1hbHxlbnwwfHx8fDE3NzkxMTg3MDN8MA&ixlib=rb-4.1.0&q=85",
+        "category": "gallery",
+        "description": "Minimal architecture grayscale"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1551161440-88a5c5b09ba0?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzNzl8MHwxfHNlYXJjaHw0fHxibGFjayUyMGFuZCUyMHdoaXRlJTIwYXJjaGl0ZWN0dXJlJTIwbWluaW1hbHxlbnwwfHx8fDE3NzkxMTg3MDN8MA&ixlib=rb-4.1.0&q=85",
+        "category": "gallery",
+        "description": "High rise building grayscale"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1506863530036-1efeddceb993?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NDh8MHwxfHNlYXJjaHwyfHxibGFjayUyMGFuZCUyMHdoaXRlJTIwcG9ydHJhaXQlMjBwaG90b2dyYXBoeSUyMG1vb2R8ZW58MHx8fHwxNzc5MTE4NzAzfDA&ixlib=rb-4.1.0&q=85",
+        "category": "gallery",
+        "description": "Woman portrait grayscale"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1475070929565-c985b496cb9f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTN8MHwxfHNlYXJjaHwzfHxkYXJrJTIwbW9vZHklMjBsYW5kc2NhcGUlMjBtaW5pbWFsfGVufDB8fHx8MTc3OTExODcwM3ww&ixlib=rb-4.1.0&q=85",
+        "category": "gallery",
+        "description": "Moody flowing river landscape"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1705435896415-933b94be4ea5?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTN8MHwxfHNlYXJjaHw0fHxkYXJrJTIwbW9vZHklMjBsYW5kc2NhcGUlMjBtaW5pbWFsfGVufDB8fHx8MTc3OTExODcwM3ww&ixlib=rb-4.1.0&q=85",
+        "category": "gallery",
+        "description": "Lone tree moody landscape"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1540172777610-b15b605dd68d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NDh8MHwxfHNlYXJjaHwzfHxibGFjayUyMGFuZCUyMHdoaXRlJTIwcG9ydHJhaXQlMjBwaG90b2dyYXBoeSUyMG1vb2R8ZW58MHx8fHwxNzc5MTE4NzAzfDA&ixlib=rb-4.1.0&q=85",
+        "category": "gallery",
+        "description": "Woman face portrait grayscale"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1461695008884-244cb4543d74?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzNzl8MHwxfHNlYXJjaHwyfHxibGFjayUyMGFuZCUyMHdoaXRlJTIwYXJjaGl0ZWN0dXJlJTIwbWluaW1hbHxlbnwwfHx8fDE3NzkxMTg3MDN8MA&ixlib=rb-4.1.0&q=85",
+        "category": "gallery",
+        "description": "Mirror glass building low angle"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1530037327011-979a1109a5dc?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NTN8MHwxfHNlYXJjaHwxfHxkYXJrJTIwbW9vZHklMjBsYW5kc2NhcGUlMjBtaW5pbWFsfGVufDB8fHx8MTc3OTExODcwM3ww&ixlib=rb-4.1.0&q=85",
+        "category": "gallery",
+        "description": "Mountain scenery moody"
+      }
+    ]
+  },
+  "instructions_to_main_agent": {
+    "testing": "All interactive elements (photos, hearts, payment button, login inputs) MUST have data-testid attributes.",
+    "gallery_implementation": "Use pure CSS masonry (columns-1 sm:columns-2 etc.) and break-inside-avoid for photo items to prevent cutting. Do not use complex JS masonry unless strictly needed.",
+    "pricing_logic": "Price is 3 EUR per photo. Multiply selection count by 3. Display dynamically in the floating bar.",
+    "paypal_integration": "The 'Pay with PayPal' button should simply redirect via href to 'https://paypal.me/nophotopix/[TOTAL_PRICE_HERE]EUR' or similar standard format as requested by requirements.",
+    "admin_page": "Create a simple path '/admin'. Protect with a hardcoded password check for MVP. Show a minimal file upload interface (Shadcn customized)."
+  }
+}

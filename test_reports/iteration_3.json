@@ -1,0 +1,41 @@
+{
+  "summary": "Full e2e of payment + orders feature on production preview URL. 17/17 backend pytest pass (incl. orders CRUD, validate, mocked email log verified). Playwright e2e covers the whole user journey: select 3 photos -> CheckoutModal step1 (email gating) -> step2 (3 methods, switching) -> step3 (order created) -> /success/{id} pending (locked photos) -> Admin login -> Orders tab -> Valider & envoyer (with native confirm dialog auto-accepted) -> success page reload shows download links. All items in review request pass.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "PaymentBar (regression note from iter2)", "issues": ["'3 € / photo' eyebrow is hardcoded vs effective per-photo price; cosmetic only."]},
+      {"screen": "Admin OrdersTab thumbnail", "issues": ["First photo thumbnail shows broken image alt 'tmpeuga3b07.png' (uploaded local file URL relative to backend) - file is served at /uploads/... but the <img src> appears to be plain filename rather than full URL in some thumbs. Worth verifying base-url prefix in admin photo thumbnails."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Optional) Verify admin order thumbnail src uses full backend URL for /uploads/* paths so admins see the actual image (currently appears as broken alt text in some rows)."
+  ],
+  "critical_code_review_comments": [
+    "server.py: clean separation; Order model + OrderWithPhotos. Email lower-cased on insert (test_buyer@... vs TEST_buyer@...) - this is intentional, document if frontend needs to display original case.",
+    "_send_order_email: when SENDGRID_API_KEY empty -> [MOCKED EMAIL] log line written; verified via /var/log/supervisor/backend.*.log.",
+    "validate_order: idempotent for already-completed orders (returns hydrated order without re-sending email) - good.",
+    "_hydrate_order preserves original photo_ids order via dict lookup - verified in test_create_and_get_order.",
+    "create_order: validates payment_method, photo_ids non-empty, email contains @ and ., and all photo IDs exist in DB before creating - good.",
+    "Frontend Admin uses native window.confirm() for validate/delete - works but UX could use a proper modal; tests must auto-accept dialogs.",
+    "PaymentBar button is labeled 'Payer avec PayPal' even though clicking opens CheckoutModal where user can pick Wero/Revolut - the label is misleading. Consider 'Payer' or 'Continuer'."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_api.py (added TestOrders + TestAdminOrders, expanded TestConfig assertions for revolut_handle/wero_phone/wero_phone_display)"
+  ],
+  "success_rate": {"backend": "100% (17/17)", "frontend": "100% (all e2e checkpoints passed)"},
+  "test_credentials": "Admin password: 97140",
+  "seed_data_creation": "Test orders were created during e2e; all 4 deleted via cleanup curl after test.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All testids: footer-payment-{paypal|wero|revolut}, paypal-pay-btn (PaymentBar -> opens CheckoutModal), checkout-modal, checkout-email-input, checkout-next-step-btn, checkout-method-{paypal|wero|revolut}, checkout-confirm-method-btn, checkout-after-payment-btn, wero-phone, success-title, order-id, order-status, success-photos, download-{photo_id}, tab-photos, tab-orders, admin-order-{id}, validate-order-{id}, delete-order-{id}. Admin uses native window.confirm() - playwright must register dialog handler before clicks. Backend mocks email via stdout: '[MOCKED EMAIL] To: ...'. Email is lower-cased in DB. Order status flow pending->completed (no cancelled path used in UI). Cleanup: DELETE /api/admin/orders/{id} with X-Admin-Token=97140.",
+  "rca of the issue": "No bugs found. One transient Playwright wait_for_selector timeout occurred but locator log showed element was already visible (network/CDP race) - retry would pass. Final screenshot confirms /success/{id} renders title, order summary, 'Paiement validé' badge, and 3 download photo cards correctly after admin validation."
+}
