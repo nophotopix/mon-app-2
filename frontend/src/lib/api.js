@@ -30,3 +30,15 @@ export const adminLogin = async (password) => {
 const { data } = await api.post("/admin/login", { password });
 return data;
 };
+export const uploadPhoto = async (file) => {
+const formData = new FormData();
+formData.append("file", file);
+
+const { data } = await api.post("/photos/upload", formData, {
+headers: {
+"Content-Type": "multipart/form-data",
+},
+});
+
+return data;
+};
