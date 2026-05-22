@@ -26,3 +26,7 @@ export const fetchAdminOrders = async () => {
 const { data } = await api.get("/admin/orders");
 return data;
 };
+export const adminLogin = async (password) => {
+const { data } = await api.post("/admin/login", { password });
+return data;
+};
