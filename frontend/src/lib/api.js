@@ -70,3 +70,12 @@ export const adminLogin = async (password) => {
 const { data } = await api.post("/admin/login", { password });
 return data;
 };
+
+export const fetchConfig = async () => {
+try {
+const { data } = await api.get("/config");
+return data;
+} catch (error) {
+return {};
+}
+};
