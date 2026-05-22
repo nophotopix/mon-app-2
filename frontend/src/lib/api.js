@@ -79,3 +79,8 @@ return data;
 return {};
 }
 };
+
+export const fetchOrder = async (orderId) => {
+const { data } = await api.get(`/orders/${orderId}`);
+return data;
+};
