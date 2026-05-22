@@ -17,3 +17,8 @@ export const fetchPhotos = async () => {
 const { data } = await api.get("/photos");
 return data;
 };
+
+export const createOrder = async (payload) => {
+const { data } = await api.post("/orders", payload);
+return data;
+};
