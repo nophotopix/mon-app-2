@@ -1,8 +1,8 @@
-cd /app
-cat > frontend/src/lib/api.js <<'EOF'
 import axios from "axios";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "https://image-select-pay.preview.emergentagent.com";
+const BACKEND_URL =
+process.env.REACT_APP_BACKEND_URL ||
+"https://image-select-pay.preview.emergentagent.com";
 
 export const API = `${BACKEND_URL}/api`;
 export const ASSET_BASE = BACKEND_URL;
@@ -23,9 +23,11 @@ return data;
 export const uploadPhoto = async (file) => {
 const formData = new FormData();
 formData.append("file", file);
+
 const { data } = await api.post("/photos/upload", formData, {
 headers: { "Content-Type": "multipart/form-data" },
 });
+
 return data;
 };
 
@@ -49,9 +51,11 @@ return data;
 };
 
 export const validateOrder = async (id, token) => {
-const { data } = await api.post(`/admin/orders/${id}/validate`, {}, {
-headers: { "x-admin-token": token },
-});
+const { data } = await api.post(
+`/admin/orders/${id}/validate`,
+{},
+{ headers: { "x-admin-token": token } }
+);
 return data;
 };
 
@@ -64,21 +68,5 @@ return data;
 
 export const adminLogin = async (password) => {
 const { data } = await api.post("/admin/login", { password });
-return data;
-};
-EOF
-
-export const uploadPhoto = async (formData) => {
-const { data } = await api.post("/photos", formData);
-return data;
-};
-
-export const deletePhoto = async (photoId) => {
-const { data } = await api.delete(`/photos/${photoId}`);
-return data;
-};
-
-export const adminLogin = async (payload) => {
-const { data } = await api.post("/admin/login", payload);
 return data;
 };
