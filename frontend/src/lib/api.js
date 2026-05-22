@@ -67,3 +67,18 @@ const { data } = await api.post("/admin/login", { password });
 return data;
 };
 EOF
+
+export const uploadPhoto = async (formData) => {
+const { data } = await api.post("/photos", formData);
+return data;
+};
+
+export const deletePhoto = async (photoId) => {
+const { data } = await api.delete(`/photos/${photoId}`);
+return data;
+};
+
+export const adminLogin = async (payload) => {
+const { data } = await api.post("/admin/login", payload);
+return data;
+};
