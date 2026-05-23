@@ -142,10 +142,29 @@ async def get_config():
     )
 
 
+def _absolute_url(url: str) -> str:
+    """Convert a relative /uploads/... path into a fully-qualified URL using PUBLIC_BASE_URL.
+    If PUBLIC_BASE_URL is not set, returns the path unchanged (server-relative)."""
+    if not url:
+        return url
+    if url.startswith("http://") or url.startswith("https://"):
+        return url
+    if PUBLIC_BASE_URL:
+        return f"{PUBLIC_BASE_URL.rstrip('/')}{url}"
+    return url
+
+
+def _hydrate_photo(doc: dict) -> dict:
+    """Ensure photo.url is always an absolute, frontend-usable URL."""
+    if isinstance(doc, dict) and "url" in doc:
+        doc["url"] = _absolute_url(doc["url"])
+    return doc
+
+
 @api_router.get("/photos", response_model=List[Photo])
 async def list_photos():
     photos = await db.photos.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
-    return photos
+    return [_hydrate_photo(p) for p in (photos or [])]
 
 
 @api_router.post("/admin/login")
@@ -160,12 +179,7 @@ def _check_admin(token: Optional[str]):
         raise HTTPException(status_code=401, detail="Non autorisé")
 
 
-@api_router.post("/photos", response_model=Photo)
-async def upload_photo(
-    file: UploadFile = File(...),
-    title: Optional[str] = Form(None),
-    x_admin_token: Optional[str] = Header(None),
-):
+async def _do_upload_photo(file: UploadFile, title: Optional[str], x_admin_token: Optional[str]):
     _check_admin(x_admin_token)
 
     if not file.content_type or not file.content_type.startswith("image/"):
@@ -182,10 +196,32 @@ async def upload_photo(
     with dest.open("wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    url = f"/uploads/{filename}"
-    photo = Photo(id=photo_id, url=url, title=title or file.filename, source="upload")
-    await db.photos.insert_one(photo.model_dump())
-    return photo
+    # Store the relative URL in DB (so PUBLIC_BASE_URL changes propagate automatically),
+    # but return absolute URL via _hydrate_photo.
+    rel_url = f"/uploads/{filename}"
+    photo = Photo(id=photo_id, url=rel_url, title=title or file.filename, source="upload")
+    doc = photo.model_dump()
+    await db.photos.insert_one(doc)
+    return _hydrate_photo(doc)
+
+
+@api_router.post("/photos", response_model=Photo)
+async def upload_photo(
+    file: UploadFile = File(...),
+    title: Optional[str] = Form(None),
+    x_admin_token: Optional[str] = Header(None),
+):
+    return await _do_upload_photo(file, title, x_admin_token)
+
+
+# Alias route to match the conventional admin-prefixed pattern.
+@api_router.post("/admin/photos/upload", response_model=Photo)
+async def upload_photo_admin_alias(
+    file: UploadFile = File(...),
+    title: Optional[str] = Form(None),
+    x_admin_token: Optional[str] = Header(None),
+):
+    return await _do_upload_photo(file, title, x_admin_token)
 
 
 @api_router.delete("/photos/{photo_id}")
@@ -210,12 +246,11 @@ async def delete_photo(photo_id: str, x_admin_token: Optional[str] = Header(None
 # ============= ORDERS =============
 
 async def _hydrate_order(order: dict) -> dict:
-    """Attach Photo objects to an order document."""
+    """Attach Photo objects to an order document with absolute URLs."""
     photo_docs = await db.photos.find(
         {"id": {"$in": order.get("photo_ids", [])}}, {"_id": 0}
     ).to_list(1000)
-    # Preserve original order
-    by_id = {p["id"]: p for p in photo_docs}
+    by_id = {p["id"]: _hydrate_photo(p) for p in photo_docs}
     order["photos"] = [by_id[pid] for pid in order.get("photo_ids", []) if pid in by_id]
     return order
 
@@ -374,10 +409,18 @@ async def delete_order(order_id: str, x_admin_token: Optional[str] = Header(None
 # Include the router in the main app
 app.include_router(api_router)
 
+# CORS configuration.
+# IMPORTANT: when allow_credentials=True, the browser rejects `Access-Control-Allow-Origin: *`.
+# Since this API uses a header-based admin token (not cookies), credentials are not required.
+# This setup allows ALL origins which is required because the frontend is hosted on a
+# different domain (Netlify / Emergent) than the backend (Render).
+_cors_origins = os.environ.get('CORS_ORIGINS', '*').split(',')
+_cors_origins = [o.strip() for o in _cors_origins if o.strip()]
+_wildcard = "*" in _cors_origins
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_credentials=not _wildcard,
+    allow_origins=_cors_origins if not _wildcard else ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
