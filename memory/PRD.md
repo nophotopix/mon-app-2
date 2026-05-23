@@ -1,75 +1,77 @@
 # No.Photo.Pix — PRD
 
 ## Original Problem Statement
-Modern photo gallery web app for a photographer to sell photos with PayPal payment.
+Modern photo gallery web app for a photographer to sell photos with manual payment methods (PayPal/Wero/Revolut). After admin manually validates the payment, an automated email must be sent containing a secure 7-day download link.
 
 ## User Choices & Brand
 - **Brand**: No.Photo.Pix (NPP)
-- **Theme**: Dark elegant gold/red premium photography
-- **Photos**: Unsplash demo + admin upload
+- **Theme**: Dark elegant gold/red premium photography (cinematic)
+- **Photos**: Unsplash demo + admin upload (persistent via Emergent Object Storage)
 - **Logo**: 5cm x 15cm centered, gold halo
 - **Contact**: Instagram @no_photo_pix, phone 07 60 59 93 12
-- **Payment methods**: PayPal · Wero · Revolut
-- **Packs**: 1 photo=3€, 3=8€ (populaire), 5=12€
+- **Payment methods**: PayPal · Wero · Revolut (manual only — no Stripe in UI)
+- **Packs**: 1 photo = 3€, 3 = 8€ (populaire), 5 = 12€
 
 ## Architecture
-- **Backend**: FastAPI + Motor (MongoDB). Routes under /api. Static /uploads.
-- **Frontend**: React + React Router + Tailwind + Shadcn + Sonner + Phosphor + Cormorant Garamond / Outfit.
-- **Collections**: photos, orders.
-- **Email**: SendGrid SDK installed, MOCKED when SENDGRID_API_KEY empty (logs only).
+- **Backend**: FastAPI + Motor (MongoDB). Routes under /api. Object Storage via Emergent.
+- **Frontend**: React + React Router + Tailwind + Shadcn + Sonner + Phosphor.
+- **Collections**: photos, albums, orders, payment_transactions.
+- **Email**: SendGrid (real when SENDGRID_API_KEY valid; mocked logs when missing/invalid).
 
 ## Personas
-- **Visitor**: browses, selects via heart, pays via chosen method, receives photos by email.
-- **Admin (photographer)**: uploads photos, validates orders manually after payment confirmation.
+- **Visitor**: browses, selects via heart, pays via chosen method, receives email → /download/:token → grabs HD photos.
+- **Admin**: uploads photos, organizes albums, validates orders manually → triggers automatic email + download link.
 
 ## Implemented
-### Phase 1 (2026-02-18) — Gallery MVP
-- Gallery + masonry + heart selection + floating payment bar + PayPal.me redirect
-- Admin: login, upload, delete photos
-- Auto-seed 8 Unsplash photos
+### Phase 1–4 (prior)
+- MVP gallery, packs, multi-payment, orders, SendGrid email (manual photo links in email)
+- Albums/Folders, Emergent Object Storage, premium cinematic UI, lightbox
+- Stripe Checkout endpoints (backend only, NOT exposed in UI per user preference)
 
-### Phase 2 — Branding & Packs
-- NPP logo (header + 5cm×15cm hero), gold dark theme
-- Pack pricing (DP algorithm) with savings badge
-- "Comment ça marche" 4-step section
-- Instagram link in footer
-- "Pas de PayPal ?" gold CTA
-
-### Phase 3 — Multi-payment + Orders + Email (2026-05-20)
-- 3 payment methods: PayPal, Wero (phone 07 60 59 93 12), Revolut (revolut.me/nophotopix)
-- Footer payment icons (PayPal/Wero/Revolut)
-- CheckoutModal: 3-step flow (email → method → instructions)
-- Backend Order model with status pending/completed
-- Success page `/success/:orderId` with order summary + locked/unlocked photo downloads + 12s polling
-- Admin Orders tab with "Valider & envoyer" button (sends email)
-- SendGrid integration prepared, **MOCKED** (logs `[MOCKED EMAIL]`) until SENDGRID_API_KEY provided
-- 100% backend (17/17 pytest) + 100% frontend e2e validated (iter 3)
+### Phase 5 (2026-05-23) — Automatic Download Links After Manual Validation
+- `POST /api/admin/orders/{id}/validate` now:
+  - generates a secure `download_token` (URL-safe, 40 bytes)
+  - sets `download_expires_at` (7 days)
+  - sends an automated SendGrid email containing a single button "TÉLÉCHARGER MES PHOTOS" → `/download/{token}`
+  - idempotent: re-validation returns existing token without re-issuing
+- New public route `GET /api/download/{token}` (info) + `GET /api/download/{token}/file/{photo_id}` (secure file stream)
+- Token-gated photo file streaming supports: object storage, local /uploads, and external (Unsplash) URLs via proxy
+- 410 Gone when token expired; 403 when photo doesn't belong to the order; 404 when token invalid/order not completed
+- Frontend page `/download/:token` (Download.jsx) — premium gold/dark UI with order meta, expiration date, photo grid with secure HD download anchors
+- Success page now shows prominent "ACCÉDER À MES PHOTOS" CTA when order has a download_token
+- Per-photo download buttons on Success use secure token URL when available
+- **24/24 backend pytest** + frontend Playwright validated (iteration_4)
 
 ## Required env vars (backend/.env)
 ```
-ADMIN_PASSWORD=97140
+ADMIN_PASSWORD=Noclan97140$
 PAYPAL_ME_HANDLE=nophotopix
 REVOLUT_ME_HANDLE=nophotopix
 WERO_PHONE=+33760599312
 WERO_PHONE_DISPLAY=07 60 59 93 12
-SENDGRID_API_KEY=          # ⬅ TO PROVIDE for real emails
-SENDER_EMAIL=no-reply@nophotopix.com  # ⬅ verified in SendGrid
+SENDGRID_API_KEY=          # ⬅ TO PROVIDE for real emails (currently invalid → mocked)
+SENDER_EMAIL=no-reply@nophotopix.com
 SENDER_NAME=No.Photo.Pix
-PUBLIC_BASE_URL=https://image-select-pay.preview.emergentagent.com
+PUBLIC_BASE_URL=https://venerable-beignet-9414de.netlify.app  # ⬅ MUST match the actual public domain
+EMERGENT_LLM_KEY=...
+STRIPE_API_KEY=sk_test_emergent  # unused in UI, kept for future
 ```
 
 ## Backlog
-### P1 (next)
-- SendGrid: provide API key + verified sender → flip from MOCKED to LIVE (no code change needed)
-- Email template polish (logo image, better HTML)
-- Order ID short-link / lookup page for clients
+### P1
+- Provide a valid SENDGRID_API_KEY + verified sender → emails go live (no code change needed)
+- Confirm PUBLIC_BASE_URL matches the production domain so email links resolve
+- Cosmetic: ensure /download/{token} grid thumbnails render (resolveImageUrl prefix for relative /uploads/... — currently broken alt for uploaded photos only; HD download itself works)
 
 ### P2
 - Watermark on previews until paid
-- Photo lightbox preview
-- Photo categories / collections
-- Real PayPal Checkout SDK (auto-confirm payments)
+- Categories / collections of photos
+- Polish email template (logo image, plain-text fallback)
+- Expose Stripe (already wired backend-side) in UI as 4th payment option, if/when desired
+
+## Test Credentials
+See /app/memory/test_credentials.md (Admin: `Noclan97140$`).
 
 ## Next Tasks
-- Customer: get SendGrid account + API key + verified sender → email flows go live
-- Optional: change ADMIN_PASSWORD to something stronger than `97140`
+- Provide a valid SendGrid API key & verified sender to switch email from mocked to live
+- (Optional) Fix thumbnail rendering for uploaded photos on /download/:token grid
