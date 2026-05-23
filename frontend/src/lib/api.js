@@ -64,6 +64,55 @@ export const deletePhoto = async (id, token) => {
   return data;
 };
 
+// Albums
+export const fetchAlbums = async () => {
+  try {
+    const { data } = await api.get("/albums");
+    return asArray(data);
+  } catch (e) {
+    console.error("fetchAlbums failed:", e);
+    return [];
+  }
+};
+
+export const fetchAlbum = async (albumId) => {
+  const { data } = await api.get(`/albums/${albumId}`);
+  return data;
+};
+
+export const createAlbum = async (payload, token) => {
+  const { data } = await api.post("/admin/albums", payload, {
+    headers: { "X-Admin-Token": token },
+  });
+  return data;
+};
+
+export const updateAlbum = async (albumId, payload, token) => {
+  const { data } = await api.put(`/admin/albums/${albumId}`, payload, {
+    headers: { "X-Admin-Token": token },
+  });
+  return data;
+};
+
+export const deleteAlbum = async (albumId, token, deletePhotos = false) => {
+  const { data } = await api.delete(
+    `/admin/albums/${albumId}?delete_photos=${deletePhotos ? "true" : "false"}`,
+    { headers: { "X-Admin-Token": token } }
+  );
+  return data;
+};
+
+export const uploadPhotoToAlbum = async (file, token, albumId, title) => {
+  const formData = new FormData();
+  formData.append("file", file);
+  if (title) formData.append("title", title);
+  if (albumId) formData.append("album_id", albumId);
+  const { data } = await api.post("/photos", formData, {
+    headers: { "X-Admin-Token": token, "Content-Type": "multipart/form-data" },
+  });
+  return data;
+};
+
 // Orders
 export const createOrder = async (payload) => {
   const { data } = await api.post("/orders", payload);

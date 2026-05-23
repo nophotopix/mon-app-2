@@ -53,7 +53,42 @@ class Photo(BaseModel):
     url: str
     title: Optional[str] = None
     source: str = "unsplash"  # unsplash | upload
+    album_id: Optional[str] = None
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class Album(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    date: Optional[str] = None  # ISO date string YYYY-MM-DD
+    description: Optional[str] = None
+    cover_photo_id: Optional[str] = None
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class AlbumWithMeta(Album):
+    photo_count: int = 0
+    cover_url: Optional[str] = None
+
+
+class AlbumWithPhotos(Album):
+    photos: List[Photo] = []
+    cover_url: Optional[str] = None
+    photo_count: int = 0
+
+
+class AlbumCreate(BaseModel):
+    name: str
+    date: Optional[str] = None
+    description: Optional[str] = None
+
+
+class AlbumUpdate(BaseModel):
+    name: Optional[str] = None
+    date: Optional[str] = None
+    description: Optional[str] = None
+    cover_photo_id: Optional[str] = None
 
 
 class AdminLogin(BaseModel):
@@ -162,8 +197,14 @@ def _hydrate_photo(doc: dict) -> dict:
 
 
 @api_router.get("/photos", response_model=List[Photo])
-async def list_photos():
-    photos = await db.photos.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+async def list_photos(album_id: Optional[str] = None):
+    query = {}
+    if album_id is not None:
+        if album_id in ("none", "null", ""):
+            query = {"$or": [{"album_id": None}, {"album_id": {"$exists": False}}]}
+        else:
+            query = {"album_id": album_id}
+    photos = await db.photos.find(query, {"_id": 0}).sort("created_at", -1).to_list(2000)
     return [_hydrate_photo(p) for p in (photos or [])]
 
 
@@ -179,7 +220,7 @@ def _check_admin(token: Optional[str]):
         raise HTTPException(status_code=401, detail="Non autorisé")
 
 
-async def _do_upload_photo(file: UploadFile, title: Optional[str], x_admin_token: Optional[str]):
+async def _do_upload_photo(file: UploadFile, title: Optional[str], album_id: Optional[str], x_admin_token: Optional[str]):
     _check_admin(x_admin_token)
 
     if not file.content_type or not file.content_type.startswith("image/"):
@@ -189,6 +230,16 @@ async def _do_upload_photo(file: UploadFile, title: Optional[str], x_admin_token
     if ext not in {".jpg", ".jpeg", ".png", ".webp", ".gif"}:
         ext = ".jpg"
 
+    # If album_id provided, verify it exists.
+    clean_album_id: Optional[str] = None
+    if album_id:
+        album_id = album_id.strip()
+        if album_id and album_id not in ("none", "null", ""):
+            exists = await db.albums.find_one({"id": album_id}, {"_id": 0, "id": 1})
+            if not exists:
+                raise HTTPException(status_code=404, detail="Album introuvable")
+            clean_album_id = album_id
+
     photo_id = str(uuid.uuid4())
     filename = f"{photo_id}{ext}"
     dest = UPLOAD_DIR / filename
@@ -196,12 +247,25 @@ async def _do_upload_photo(file: UploadFile, title: Optional[str], x_admin_token
     with dest.open("wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    # Store the relative URL in DB (so PUBLIC_BASE_URL changes propagate automatically),
-    # but return absolute URL via _hydrate_photo.
     rel_url = f"/uploads/{filename}"
-    photo = Photo(id=photo_id, url=rel_url, title=title or file.filename, source="upload")
+    photo = Photo(
+        id=photo_id,
+        url=rel_url,
+        title=title or file.filename,
+        source="upload",
+        album_id=clean_album_id,
+    )
     doc = photo.model_dump()
     await db.photos.insert_one(doc)
+
+    # If this is the first photo in the album, auto-set it as cover.
+    if clean_album_id:
+        album = await db.albums.find_one({"id": clean_album_id}, {"_id": 0})
+        if album and not album.get("cover_photo_id"):
+            await db.albums.update_one(
+                {"id": clean_album_id}, {"$set": {"cover_photo_id": photo_id}}
+            )
+
     return _hydrate_photo(doc)
 
 
@@ -209,9 +273,10 @@ async def _do_upload_photo(file: UploadFile, title: Optional[str], x_admin_token
 async def upload_photo(
     file: UploadFile = File(...),
     title: Optional[str] = Form(None),
+    album_id: Optional[str] = Form(None),
     x_admin_token: Optional[str] = Header(None),
 ):
-    return await _do_upload_photo(file, title, x_admin_token)
+    return await _do_upload_photo(file, title, album_id, x_admin_token)
 
 
 # Alias route to match the conventional admin-prefixed pattern.
@@ -219,9 +284,10 @@ async def upload_photo(
 async def upload_photo_admin_alias(
     file: UploadFile = File(...),
     title: Optional[str] = Form(None),
+    album_id: Optional[str] = Form(None),
     x_admin_token: Optional[str] = Header(None),
 ):
-    return await _do_upload_photo(file, title, x_admin_token)
+    return await _do_upload_photo(file, title, album_id, x_admin_token)
 
 
 @api_router.delete("/photos/{photo_id}")
@@ -240,7 +306,135 @@ async def delete_photo(photo_id: str, x_admin_token: Optional[str] = Header(None
                 file_path.unlink()
 
     await db.photos.delete_one({"id": photo_id})
+
+    # If this photo was an album cover, clear it (album keeps existing).
+    await db.albums.update_many(
+        {"cover_photo_id": photo_id}, {"$set": {"cover_photo_id": None}}
+    )
     return {"success": True}
+
+
+# ============= ALBUMS =============
+
+async def _album_meta(album: dict) -> dict:
+    """Add photo_count and cover_url to an album document."""
+    if not isinstance(album, dict):
+        return album
+    album["photo_count"] = await db.photos.count_documents({"album_id": album["id"]})
+
+    cover_url = None
+    cover_id = album.get("cover_photo_id")
+    if cover_id:
+        cover = await db.photos.find_one({"id": cover_id}, {"_id": 0, "url": 1})
+        if cover:
+            cover_url = _absolute_url(cover.get("url", ""))
+    if not cover_url:
+        # fallback: first photo of the album
+        first = await db.photos.find_one(
+            {"album_id": album["id"]}, {"_id": 0, "url": 1}, sort=[("created_at", 1)]
+        )
+        if first:
+            cover_url = _absolute_url(first.get("url", ""))
+    album["cover_url"] = cover_url
+    return album
+
+
+@api_router.get("/albums", response_model=List[AlbumWithMeta])
+async def list_albums():
+    albums = await db.albums.find({}, {"_id": 0}).sort("date", -1).to_list(1000)
+    return [await _album_meta(a) for a in (albums or [])]
+
+
+@api_router.get("/albums/{album_id}", response_model=AlbumWithPhotos)
+async def get_album(album_id: str):
+    album = await db.albums.find_one({"id": album_id}, {"_id": 0})
+    if not album:
+        raise HTTPException(status_code=404, detail="Album introuvable")
+    photos = await db.photos.find(
+        {"album_id": album_id}, {"_id": 0}
+    ).sort("created_at", -1).to_list(2000)
+    album["photos"] = [_hydrate_photo(p) for p in (photos or [])]
+    await _album_meta(album)
+    return album
+
+
+@api_router.post("/admin/albums", response_model=AlbumWithMeta)
+async def create_album(body: AlbumCreate, x_admin_token: Optional[str] = Header(None)):
+    _check_admin(x_admin_token)
+    if not body.name or not body.name.strip():
+        raise HTTPException(status_code=400, detail="Le nom de l'album est requis")
+    album = Album(
+        name=body.name.strip(),
+        date=(body.date or "").strip() or None,
+        description=(body.description or "").strip() or None,
+    )
+    doc = album.model_dump()
+    await db.albums.insert_one(doc)
+    return await _album_meta(doc)
+
+
+@api_router.put("/admin/albums/{album_id}", response_model=AlbumWithMeta)
+async def update_album(
+    album_id: str,
+    body: AlbumUpdate,
+    x_admin_token: Optional[str] = Header(None),
+):
+    _check_admin(x_admin_token)
+    album = await db.albums.find_one({"id": album_id}, {"_id": 0})
+    if not album:
+        raise HTTPException(status_code=404, detail="Album introuvable")
+
+    updates: dict = {}
+    if body.name is not None and body.name.strip():
+        updates["name"] = body.name.strip()
+    if body.date is not None:
+        updates["date"] = body.date.strip() or None
+    if body.description is not None:
+        updates["description"] = body.description.strip() or None
+    if body.cover_photo_id is not None:
+        # verify photo belongs to this album
+        if body.cover_photo_id:
+            p = await db.photos.find_one(
+                {"id": body.cover_photo_id, "album_id": album_id}, {"_id": 0, "id": 1}
+            )
+            if not p:
+                raise HTTPException(status_code=400, detail="La photo de couverture doit appartenir à cet album")
+        updates["cover_photo_id"] = body.cover_photo_id or None
+
+    if updates:
+        await db.albums.update_one({"id": album_id}, {"$set": updates})
+        album.update(updates)
+    return await _album_meta(album)
+
+
+@api_router.delete("/admin/albums/{album_id}")
+async def delete_album(
+    album_id: str,
+    delete_photos: bool = False,
+    x_admin_token: Optional[str] = Header(None),
+):
+    _check_admin(x_admin_token)
+    album = await db.albums.find_one({"id": album_id}, {"_id": 0})
+    if not album:
+        raise HTTPException(status_code=404, detail="Album introuvable")
+
+    if delete_photos:
+        # Delete all photos in album (including files for uploads).
+        photos = await db.photos.find({"album_id": album_id}, {"_id": 0}).to_list(5000)
+        for p in photos:
+            if p.get("source") == "upload":
+                url = p.get("url", "")
+                if url.startswith("/uploads/"):
+                    file_path = UPLOAD_DIR / url.replace("/uploads/", "")
+                    if file_path.exists():
+                        file_path.unlink()
+        await db.photos.delete_many({"album_id": album_id})
+    else:
+        # Just unassign photos from album, keep them.
+        await db.photos.update_many({"album_id": album_id}, {"$set": {"album_id": None}})
+
+    await db.albums.delete_one({"id": album_id})
+    return {"success": True, "deleted_photos": bool(delete_photos)}
 
 
 # ============= ORDERS =============

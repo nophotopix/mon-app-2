@@ -2,12 +2,18 @@ import { useEffect, useRef, useState } from "react";
 import { Header } from "../components/Header";
 import {
   adminLogin,
+  createAlbum,
+  deleteAlbum,
   deletePhoto,
   deleteOrder,
   fetchAdminOrders,
+  fetchAlbum,
+  fetchAlbums,
   fetchPhotos,
   resolveImageUrl,
+  updateAlbum,
   uploadPhoto,
+  uploadPhotoToAlbum,
   validateOrder,
 } from "../lib/api";
 import { PaymentMethodIcon } from "../components/PaymentIcons";
@@ -23,6 +29,11 @@ import {
   Image as ImageIcon,
   ShoppingBag,
   PaperPlaneTilt,
+  Folder,
+  FolderPlus,
+  ArrowLeft,
+  CalendarBlank,
+  Star,
 } from "@phosphor-icons/react";
 
 const TOKEN_KEY = "nophotopix_admin_token";
@@ -32,8 +43,10 @@ export default function Admin() {
   const [password, setPassword] = useState("");
   const [loggingIn, setLoggingIn] = useState(false);
 
-  const [tab, setTab] = useState("photos"); // photos | orders
+  const [tab, setTab] = useState("albums"); // albums | photos | orders
   const [photos, setPhotos] = useState([]);
+  const [albums, setAlbums] = useState([]);
+  const [selectedAlbumId, setSelectedAlbumId] = useState(null);
   const [orders, setOrders] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [validatingId, setValidatingId] = useState(null);
@@ -64,8 +77,18 @@ export default function Admin() {
     }
   };
 
+  const loadAlbums = async () => {
+    try {
+      setAlbums(await fetchAlbums());
+    } catch {
+      setAlbums([]);
+      toast.error("Erreur de chargement des albums");
+    }
+  };
+
   useEffect(() => {
     if (token) {
+      loadAlbums();
       loadPhotos();
       loadOrders();
     }
@@ -99,10 +122,15 @@ export default function Admin() {
     setUploading(true);
     try {
       for (const file of files) {
-        await uploadPhoto(file, token);
+        if (selectedAlbumId) {
+          await uploadPhotoToAlbum(file, token, selectedAlbumId);
+        } else {
+          await uploadPhoto(file, token);
+        }
       }
       toast.success(`${files.length} photo${files.length > 1 ? "s" : ""} ajoutée${files.length > 1 ? "s" : ""}`);
       await loadPhotos();
+      await loadAlbums();
     } catch (err) {
       if (err?.response?.status === 401) {
         toast.error("Session expirée");
@@ -122,8 +150,52 @@ export default function Admin() {
       await deletePhoto(id, token);
       toast.success("Photo supprimée");
       await loadPhotos();
+      await loadAlbums();
     } catch {
       toast.error("Erreur de suppression");
+    }
+  };
+
+  const handleCreateAlbum = async ({ name, date, description }) => {
+    try {
+      await createAlbum({ name, date, description }, token);
+      toast.success("Album créé");
+      await loadAlbums();
+      return true;
+    } catch (err) {
+      if (err?.response?.status === 401) {
+        toast.error("Session expirée");
+        handleLogout();
+      } else {
+        toast.error(err?.response?.data?.detail || "Erreur lors de la création");
+      }
+      return false;
+    }
+  };
+
+  const handleDeleteAlbum = async (albumId) => {
+    const hardDelete = confirm(
+      "Supprimer cet album.\n\nOK = supprimer aussi toutes les photos de l'album.\nAnnuler = revenir en arrière."
+    );
+    if (!hardDelete) return;
+    try {
+      await deleteAlbum(albumId, token, true);
+      toast.success("Album et ses photos supprimés");
+      setSelectedAlbumId(null);
+      await loadAlbums();
+      await loadPhotos();
+    } catch {
+      toast.error("Erreur de suppression");
+    }
+  };
+
+  const handleSetCover = async (albumId, photoId) => {
+    try {
+      await updateAlbum(albumId, { cover_photo_id: photoId }, token);
+      toast.success("Couverture mise à jour");
+      await loadAlbums();
+    } catch {
+      toast.error("Erreur de mise à jour");
     }
   };
 
@@ -237,6 +309,20 @@ export default function Admin() {
         {/* Tabs */}
         <div className="flex gap-1 border-b border-white/10 mb-10">
           <button
+            data-testid="tab-albums"
+            onClick={() => {
+              setTab("albums");
+              setSelectedAlbumId(null);
+            }}
+            className={`flex items-center gap-2 px-5 py-3 text-sm transition-colors border-b-2 -mb-px ${
+              tab === "albums"
+                ? "border-[#E8B23A] text-white"
+                : "border-transparent text-white/50 hover:text-white"
+            }`}
+          >
+            <Folder size={16} /> Albums ({albums.length})
+          </button>
+          <button
             data-testid="tab-photos"
             onClick={() => setTab("photos")}
             className={`flex items-center gap-2 px-5 py-3 text-sm transition-colors border-b-2 -mb-px ${
@@ -245,7 +331,7 @@ export default function Admin() {
                 : "border-transparent text-white/50 hover:text-white"
             }`}
           >
-            <ImageIcon size={16} /> Photos ({photos.length})
+            <ImageIcon size={16} /> Toutes les photos ({photos.length})
           </button>
           <button
             data-testid="tab-orders"
@@ -265,6 +351,27 @@ export default function Admin() {
           </button>
         </div>
 
+        {tab === "albums" && !selectedAlbumId && (
+          <AlbumsTab
+            albums={albums}
+            onCreate={handleCreateAlbum}
+            onOpen={(id) => setSelectedAlbumId(id)}
+            onDelete={handleDeleteAlbum}
+          />
+        )}
+        {tab === "albums" && selectedAlbumId && (
+          <AlbumDetailTab
+            albumId={selectedAlbumId}
+            token={token}
+            uploading={uploading}
+            fileInputRef={fileInputRef}
+            handleUpload={handleUpload}
+            handleDelete={handleDelete}
+            handleSetCover={handleSetCover}
+            handleDeleteAlbum={handleDeleteAlbum}
+            onBack={() => setSelectedAlbumId(null)}
+          />
+        )}
         {tab === "photos" && (
           <PhotosTab
             photos={photos}
@@ -287,6 +394,326 @@ export default function Admin() {
     </div>
   );
 }
+
+const AlbumsTab = ({ albums, onCreate, onOpen, onDelete }) => {
+  const [showForm, setShowForm] = useState(false);
+  const [name, setName] = useState("");
+  const [date, setDate] = useState("");
+  const [description, setDescription] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setSubmitting(true);
+    const ok = await onCreate({ name, date, description });
+    if (ok) {
+      setName("");
+      setDate("");
+      setDescription("");
+      setShowForm(false);
+    }
+    setSubmitting(false);
+  };
+
+  return (
+    <div>
+      <div className="flex justify-between items-end mb-8">
+        <p className="text-eyebrow text-white/40">Tous les albums</p>
+        <button
+          data-testid="create-album-btn"
+          onClick={() => setShowForm((v) => !v)}
+          className="inline-flex items-center gap-2 bg-gradient-to-r from-[#E8B23A] via-[#FFD66B] to-[#C8902A] text-black px-4 py-2.5 rounded-sm font-medium text-sm hover:brightness-110 transition"
+        >
+          <FolderPlus size={16} weight="bold" />
+          {showForm ? "Annuler" : "Créer un album"}
+        </button>
+      </div>
+
+      {showForm && (
+        <form
+          data-testid="create-album-form"
+          onSubmit={submit}
+          className="border border-[#E8B23A]/30 bg-gradient-to-br from-[#1a1206]/40 via-[#0a0a0a] to-[#0a0a0a] rounded-sm p-6 mb-10"
+        >
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="text-eyebrow text-white/40 block mb-2">
+                Nom de l'événement *
+              </label>
+              <input
+                data-testid="album-name-input"
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Ex: Match du 18 mai 2026"
+                className="w-full bg-[#050505] border border-white/10 focus:border-[#E8B23A]/60 outline-none text-white px-4 py-3 rounded-sm"
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="text-eyebrow text-white/40 block mb-2">Date</label>
+              <input
+                data-testid="album-date-input"
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="w-full bg-[#050505] border border-white/10 focus:border-[#E8B23A]/60 outline-none text-white px-4 py-3 rounded-sm"
+              />
+            </div>
+          </div>
+          <div className="mt-4">
+            <label className="text-eyebrow text-white/40 block mb-2">
+              Description (optionnel)
+            </label>
+            <textarea
+              data-testid="album-description-input"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={2}
+              placeholder="Quelques mots sur l'événement..."
+              className="w-full bg-[#050505] border border-white/10 focus:border-[#E8B23A]/60 outline-none text-white px-4 py-3 rounded-sm resize-none"
+            />
+          </div>
+          <button
+            data-testid="submit-album-btn"
+            type="submit"
+            disabled={!name.trim() || submitting}
+            className="mt-4 bg-white text-black px-5 py-2.5 rounded-sm font-medium text-sm hover:bg-white/90 transition disabled:opacity-30"
+          >
+            {submitting ? "Création..." : "Créer l'album"}
+          </button>
+        </form>
+      )}
+
+      {albums.length === 0 ? (
+        <div
+          data-testid="admin-no-albums"
+          className="border border-white/10 rounded-sm p-16 text-center text-white/40"
+        >
+          <Folder size={32} weight="thin" className="mx-auto mb-3 text-white/30" />
+          Aucun album pour le moment
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {albums.map((a) => (
+            <div
+              key={a.id}
+              data-testid={`admin-album-card-${a.id}`}
+              className="group relative bg-[#0a0a0a] border border-white/10 hover:border-[#E8B23A]/40 rounded-sm overflow-hidden transition-colors"
+            >
+              <button
+                onClick={() => onOpen(a.id)}
+                className="block w-full text-left"
+              >
+                <div className="aspect-[4/3] bg-[#050505] overflow-hidden">
+                  {a.cover_url ? (
+                    <img
+                      src={a.cover_url}
+                      alt={a.name}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-white/20">
+                      <Folder size={36} weight="thin" />
+                    </div>
+                  )}
+                </div>
+                <div className="p-4">
+                  <h3 className="font-display text-xl text-white">{a.name}</h3>
+                  {a.date && (
+                    <p className="text-white/40 text-xs mt-1 flex items-center gap-1">
+                      <CalendarBlank size={11} />
+                      {a.date}
+                    </p>
+                  )}
+                  <p className="text-white/50 text-xs mt-2">
+                    {a.photo_count} photo{a.photo_count > 1 ? "s" : ""}
+                  </p>
+                </div>
+              </button>
+              <button
+                data-testid={`delete-album-${a.id}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(a.id);
+                }}
+                title="Supprimer l'album"
+                className="absolute top-2 right-2 w-8 h-8 flex items-center justify-center rounded-full bg-black/60 backdrop-blur text-white/60 hover:text-red-400 hover:bg-black/80 opacity-0 group-hover:opacity-100 transition-all"
+              >
+                <Trash size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const AlbumDetailTab = ({
+  albumId,
+  uploading,
+  fileInputRef,
+  handleUpload,
+  handleDelete,
+  handleSetCover,
+  handleDeleteAlbum,
+  onBack,
+}) => {
+  const [album, setAlbum] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const reload = async () => {
+    try {
+      const data = await fetchAlbum(albumId);
+      setAlbum(data);
+    } catch {
+      toast.error("Erreur de chargement de l'album");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    setLoading(true);
+    reload();
+    // eslint-disable-next-line
+  }, [albumId, uploading]);
+
+  if (loading || !album) {
+    return (
+      <div className="text-center text-white/40 py-12">Chargement...</div>
+    );
+  }
+
+  const photos = Array.isArray(album.photos) ? album.photos : [];
+
+  return (
+    <div>
+      <button
+        data-testid="admin-back-to-albums"
+        onClick={onBack}
+        className="inline-flex items-center gap-2 text-white/60 hover:text-white text-eyebrow mb-6 transition-colors"
+      >
+        <ArrowLeft size={14} /> Tous les albums
+      </button>
+
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-10">
+        <div>
+          <p className="text-eyebrow text-[#E8B23A]">Album</p>
+          <h2
+            data-testid="admin-album-detail-name"
+            className="font-display text-4xl text-white mt-2"
+          >
+            {album.name}
+          </h2>
+          <p className="text-white/40 text-sm mt-2">
+            {album.date && (
+              <>
+                <CalendarBlank size={12} className="inline mr-1" />
+                {album.date} ·{" "}
+              </>
+            )}
+            {photos.length} photo{photos.length > 1 ? "s" : ""}
+          </p>
+        </div>
+        <button
+          data-testid="admin-album-delete-btn"
+          onClick={() => handleDeleteAlbum(albumId)}
+          className="text-red-400/80 hover:text-red-400 text-eyebrow flex items-center gap-2 transition-colors"
+        >
+          <Trash size={14} /> Supprimer l'album
+        </button>
+      </div>
+
+      {/* Upload zone scoped to this album */}
+      <label
+        data-testid="album-upload-zone"
+        className={`block border border-dashed rounded-sm p-10 text-center cursor-pointer transition-colors ${
+          uploading
+            ? "border-[#E8B23A]/40 bg-[#E8B23A]/[0.05]"
+            : "border-white/10 hover:border-[#E8B23A]/40 hover:bg-white/[0.02]"
+        }`}
+      >
+        <input
+          ref={fileInputRef}
+          data-testid="album-upload-input"
+          type="file"
+          accept="image/*"
+          multiple
+          onChange={handleUpload}
+          disabled={uploading}
+          className="hidden"
+        />
+        <UploadSimple size={32} className="mx-auto text-[#E8B23A]" weight="thin" />
+        <p className="font-display text-xl text-white mt-3">
+          {uploading ? "Téléchargement..." : `Ajouter des photos à "${album.name}"`}
+        </p>
+        <p className="text-white/40 text-sm mt-1">
+          JPG, PNG, WEBP · plusieurs fichiers possibles
+        </p>
+      </label>
+
+      <div className="mt-10">
+        {photos.length === 0 ? (
+          <div className="border border-white/10 rounded-sm p-16 text-center text-white/40">
+            Pas encore de photos dans cet album
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+            {photos.map((p) => {
+              const isCover = p.id === album.cover_photo_id;
+              return (
+                <div
+                  key={p.id}
+                  data-testid={`admin-album-photo-${p.id}`}
+                  className="group relative aspect-square bg-[#0a0a0a] overflow-hidden rounded-sm"
+                >
+                  <img
+                    src={resolveImageUrl(p.url)}
+                    alt={p.title || ""}
+                    className="w-full h-full object-cover"
+                  />
+                  {isCover && (
+                    <span className="absolute top-2 left-2 inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.2em] px-2 py-1 rounded-sm bg-[#E8B23A] text-black font-semibold">
+                      <Star size={10} weight="fill" /> Couverture
+                    </span>
+                  )}
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/60 transition-colors flex items-center justify-center gap-2 p-2">
+                    {!isCover && (
+                      <button
+                        data-testid={`set-cover-${p.id}`}
+                        onClick={async () => {
+                          await handleSetCover(albumId, p.id);
+                          reload();
+                        }}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity bg-white/90 hover:bg-white text-black px-3 py-2 rounded-sm flex items-center gap-1 text-xs"
+                        title="Définir comme couverture"
+                      >
+                        <Star size={12} /> Couverture
+                      </button>
+                    )}
+                    <button
+                      data-testid={`delete-album-photo-${p.id}`}
+                      onClick={async () => {
+                        await handleDelete(p.id);
+                        reload();
+                      }}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity bg-white text-black px-3 py-2 rounded-sm flex items-center gap-1 text-xs"
+                    >
+                      <Trash size={12} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
 
 const PhotosTab = ({ photos, uploading, fileInputRef, handleUpload, handleDelete }) => (
   <>

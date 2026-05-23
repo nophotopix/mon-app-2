@@ -4,7 +4,8 @@ import { PhotoCard } from "../components/PhotoCard";
 import { PaymentBar } from "../components/PaymentBar";
 import { CheckoutModal } from "../components/CheckoutModal";
 import { PaymentMethodIcon } from "../components/PaymentIcons";
-import { fetchPhotos, fetchConfig } from "../lib/api";
+import { AlbumsGrid } from "../components/AlbumCard";
+import { fetchPhotos, fetchConfig, fetchAlbums } from "../lib/api";
 import { PACKS, computeTotal, computeSavings } from "../lib/pricing";
 import { PAYMENT_METHODS } from "../lib/payments";
 import { toast } from "sonner";
@@ -22,21 +23,27 @@ import {
 
 export default function Gallery() {
   const [photos, setPhotos] = useState([]);
+  const [albums, setAlbums] = useState([]);
   const [selected, setSelected] = useState(new Set());
   const [config, setConfig] = useState({
     price_per_photo: 3,
     paypal_handle: "nophotopix",
+    revolut_handle: "nophotopix",
+    wero_phone: "+33760599312",
+    wero_phone_display: "07 60 59 93 12",
     currency: "EUR",
   });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([fetchPhotos(), fetchConfig()])
-      .then(([ph, cfg]) => {
+    Promise.all([fetchAlbums(), fetchPhotos(), fetchConfig()])
+      .then(([al, ph, cfg]) => {
+        setAlbums(Array.isArray(al) ? al : []);
         setPhotos(Array.isArray(ph) ? ph : []);
-        setConfig(cfg && typeof cfg === "object" ? { ...config, ...cfg } : config);
+        setConfig((c) => ({ ...c, ...(cfg || {}) }));
       })
       .catch(() => {
+        setAlbums([]);
         setPhotos([]);
         toast.error("Impossible de charger la galerie");
       })
@@ -189,39 +196,46 @@ export default function Gallery() {
       >
         <div className="flex items-end justify-between mb-12">
           <div>
-            <p className="text-eyebrow text-white/40">La collection</p>
+            <p className="text-eyebrow text-white/40">
+              {albums.length > 0 ? "Les albums" : "La collection"}
+            </p>
             <h2 className="font-display text-3xl sm:text-4xl text-white mt-2">
-              {photos.length} clichés disponibles
+              {albums.length > 0
+                ? `${albums.length} album${albums.length > 1 ? "s" : ""} disponible${albums.length > 1 ? "s" : ""}`
+                : `${photos.length} clichés disponibles`}
             </h2>
           </div>
-          <p className="text-white/40 text-sm hidden sm:block">
-            <span data-testid="selected-summary" className="text-white">
-              {count}
-            </span>{" "}
-            sélectionné{count > 1 ? "s" : ""}
-          </p>
+          {albums.length === 0 && (
+            <p className="text-white/40 text-sm hidden sm:block">
+              <span data-testid="selected-summary" className="text-white">
+                {count}
+              </span>{" "}
+              sélectionné{count > 1 ? "s" : ""}
+            </p>
+          )}
         </div>
 
         {loading ? (
-          <div className="masonry">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {Array.from({ length: 8 }).map((_, i) => (
               <div
                 key={i}
-                className="masonry-item bg-[#0a0a0a] rounded-sm animate-pulse"
-                style={{ height: 240 + ((i * 73) % 200) }}
+                className="aspect-[4/3] bg-[#0a0a0a] rounded-sm animate-pulse"
               />
             ))}
           </div>
+        ) : albums.length > 0 ? (
+          <AlbumsGrid albums={albums} />
         ) : !Array.isArray(photos) || photos.length === 0 ? (
           <div
             data-testid="empty-gallery"
             className="text-center py-32 border border-white/10 rounded-sm"
           >
             <p className="font-display text-3xl text-white/40">
-              Aucune photo pour le moment
+              Aucun album pour le moment
             </p>
             <p className="text-white/30 text-sm mt-3">
-              Connectez-vous à l'admin pour ajouter votre collection.
+              Connectez-vous à l'admin pour créer votre premier album.
             </p>
           </div>
         ) : (

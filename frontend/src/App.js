@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Gallery from "./pages/Gallery";
 import Admin from "./pages/Admin";
 import Success from "./pages/Success";
+import AlbumView from "./pages/AlbumView";
 import { Toaster } from "sonner";
 
 function App() {
@@ -12,6 +13,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Gallery />} />
           <Route path="/admin" element={<Admin />} />
+          <Route path="/album/:albumId" element={<AlbumView />} />
           <Route path="/success/:orderId" element={<Success />} />
         </Routes>
       </BrowserRouter>
