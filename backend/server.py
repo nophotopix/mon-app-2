@@ -1,12 +1,13 @@
 from fastapi import FastAPI, APIRouter, UploadFile, File, HTTPException, Header, Form
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 import shutil
+import requests
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional
@@ -35,6 +36,95 @@ SENDGRID_API_KEY = os.environ.get('SENDGRID_API_KEY', '')
 SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'no-reply@nophotopix.com')
 SENDER_NAME = os.environ.get('SENDER_NAME', 'No.Photo.Pix')
 PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '')
+
+# ============= EMERGENT OBJECT STORAGE =============
+EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
+STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
+APP_NAME = "nophotopix"
+MIME_TYPES = {
+    "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+    "gif": "image/gif", "webp": "image/webp",
+}
+
+_storage_key: Optional[str] = None
+
+
+def init_storage() -> Optional[str]:
+    """Initialize Emergent Object Storage. Returns session storage_key or None on failure."""
+    global _storage_key
+    if _storage_key:
+        return _storage_key
+    if not EMERGENT_LLM_KEY:
+        return None
+    try:
+        resp = requests.post(
+            f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_LLM_KEY}, timeout=30
+        )
+        resp.raise_for_status()
+        _storage_key = resp.json()["storage_key"]
+        return _storage_key
+    except Exception as exc:
+        logging.getLogger(__name__).error(f"Object storage init failed: {exc}")
+        return None
+
+
+def storage_put(path: str, data: bytes, content_type: str) -> Optional[dict]:
+    """Upload bytes to object storage. Returns the storage response dict or None on failure."""
+    key = init_storage()
+    if not key:
+        return None
+    try:
+        resp = requests.put(
+            f"{STORAGE_URL}/objects/{path}",
+            headers={"X-Storage-Key": key, "Content-Type": content_type},
+            data=data,
+            timeout=120,
+        )
+        if resp.status_code == 403:
+            # Storage key expired — re-init once and retry.
+            global _storage_key
+            _storage_key = None
+            key = init_storage()
+            if key:
+                resp = requests.put(
+                    f"{STORAGE_URL}/objects/{path}",
+                    headers={"X-Storage-Key": key, "Content-Type": content_type},
+                    data=data,
+                    timeout=120,
+                )
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as exc:
+        logging.getLogger(__name__).error(f"Object storage put failed for {path}: {exc}")
+        return None
+
+
+def storage_get(path: str) -> Optional[tuple]:
+    """Download from object storage. Returns (bytes, content_type) or None."""
+    key = init_storage()
+    if not key:
+        return None
+    try:
+        resp = requests.get(
+            f"{STORAGE_URL}/objects/{path}",
+            headers={"X-Storage-Key": key},
+            timeout=60,
+        )
+        if resp.status_code == 403:
+            global _storage_key
+            _storage_key = None
+            key = init_storage()
+            if key:
+                resp = requests.get(
+                    f"{STORAGE_URL}/objects/{path}",
+                    headers={"X-Storage-Key": key},
+                    timeout=60,
+                )
+        resp.raise_for_status()
+        return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
+    except Exception as exc:
+        logging.getLogger(__name__).error(f"Object storage get failed for {path}: {exc}")
+        return None
 
 # Create the main app without a prefix
 app = FastAPI()
@@ -220,15 +310,28 @@ def _check_admin(token: Optional[str]):
         raise HTTPException(status_code=401, detail="Non autorisé")
 
 
+@api_router.get("/files/{path:path}")
+async def serve_object_file(path: str):
+    """Serve a file from Emergent Object Storage. Public endpoint (no auth) — gallery images
+    are meant to be viewable; HD downloads are gated by validated orders + email links."""
+    result = storage_get(path)
+    if not result:
+        raise HTTPException(status_code=404, detail="Fichier introuvable")
+    data, content_type = result
+    return Response(content=data, media_type=content_type, headers={
+        "Cache-Control": "public, max-age=86400",
+    })
+
+
 async def _do_upload_photo(file: UploadFile, title: Optional[str], album_id: Optional[str], x_admin_token: Optional[str]):
     _check_admin(x_admin_token)
 
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Le fichier doit être une image")
 
-    ext = Path(file.filename or "").suffix.lower() or ".jpg"
-    if ext not in {".jpg", ".jpeg", ".png", ".webp", ".gif"}:
-        ext = ".jpg"
+    ext = Path(file.filename or "").suffix.lower().lstrip(".") or "jpg"
+    if ext not in {"jpg", "jpeg", "png", "webp", "gif"}:
+        ext = "jpg"
 
     # If album_id provided, verify it exists.
     clean_album_id: Optional[str] = None
@@ -241,13 +344,30 @@ async def _do_upload_photo(file: UploadFile, title: Optional[str], album_id: Opt
             clean_album_id = album_id
 
     photo_id = str(uuid.uuid4())
-    filename = f"{photo_id}{ext}"
-    dest = UPLOAD_DIR / filename
+    filename = f"{photo_id}.{ext}"
+    data = await file.read()
+    content_type = file.content_type or MIME_TYPES.get(ext, "application/octet-stream")
 
-    with dest.open("wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    # Try Emergent Object Storage first; fall back to local disk if unavailable.
+    storage_path = f"{APP_NAME}/uploads/{filename}"
+    rel_url: str
+    upload_result = storage_put(storage_path, data, content_type) if EMERGENT_LLM_KEY else None
 
-    rel_url = f"/uploads/{filename}"
+    if upload_result and upload_result.get("path"):
+        # Persistent storage. URL is served via /api/files/{path:path}
+        rel_url = f"/api/files/{upload_result['path']}"
+        storage_kind = "object"
+    else:
+        # Fallback: local filesystem (will not persist across Render restarts).
+        dest = UPLOAD_DIR / filename
+        with dest.open("wb") as buffer:
+            buffer.write(data)
+        rel_url = f"/uploads/{filename}"
+        storage_kind = "local"
+        logging.getLogger(__name__).warning(
+            f"Photo {photo_id} stored locally (object storage unavailable)"
+        )
+
     photo = Photo(
         id=photo_id,
         url=rel_url,
@@ -256,6 +376,9 @@ async def _do_upload_photo(file: UploadFile, title: Optional[str], album_id: Opt
         album_id=clean_album_id,
     )
     doc = photo.model_dump()
+    # Persist storage_kind & path in DB for serving / future cleanup
+    doc["storage_kind"] = storage_kind
+    doc["storage_path"] = storage_path if storage_kind == "object" else f"uploads/{filename}"
     await db.photos.insert_one(doc)
 
     # If this is the first photo in the album, auto-set it as cover.
@@ -297,13 +420,15 @@ async def delete_photo(photo_id: str, x_admin_token: Optional[str] = Header(None
     if not photo:
         raise HTTPException(status_code=404, detail="Photo introuvable")
 
-    # Remove file if uploaded
+    # Cleanup. For local files we can hard delete; for object storage there's no delete API,
+    # so the file remains in storage but the DB row is removed.
     if photo.get("source") == "upload":
-        url = photo.get("url", "")
-        if url.startswith("/uploads/"):
-            file_path = UPLOAD_DIR / url.replace("/uploads/", "")
-            if file_path.exists():
-                file_path.unlink()
+        if photo.get("storage_kind") == "local" or photo.get("url", "").startswith("/uploads/"):
+            url = photo.get("url", "")
+            if url.startswith("/uploads/"):
+                file_path = UPLOAD_DIR / url.replace("/uploads/", "")
+                if file_path.exists():
+                    file_path.unlink()
 
     await db.photos.delete_one({"id": photo_id})
 
@@ -628,6 +753,15 @@ logger = logging.getLogger(__name__)
 
 @app.on_event("startup")
 async def startup_event():
+    # Initialize object storage (best-effort — uploads fall back to local disk if it fails).
+    if EMERGENT_LLM_KEY:
+        key = init_storage()
+        if key:
+            logger.info("Emergent Object Storage initialized")
+        else:
+            logger.warning("Emergent Object Storage init failed — uploads will use local disk")
+    else:
+        logger.info("EMERGENT_LLM_KEY not set — uploads will use local disk")
     await seed_photos()
 
 
