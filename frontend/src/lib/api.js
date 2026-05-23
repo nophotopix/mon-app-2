@@ -119,6 +119,31 @@ export const createOrder = async (payload) => {
   return data;
 };
 
+// Stripe
+export const createStripeCheckout = async ({ email, photo_ids, album_id }) => {
+  const { data } = await api.post("/payments/checkout/session", {
+    email,
+    photo_ids,
+    album_id: album_id || null,
+    origin_url: window.location.origin,
+  });
+  return data;
+};
+
+export const fetchStripeStatus = async (sessionId) => {
+  const { data } = await api.get(`/payments/checkout/status/${sessionId}`);
+  return data;
+};
+
+// Download
+export const fetchDownload = async (token) => {
+  const { data } = await api.get(`/download/${token}`);
+  return data;
+};
+
+export const downloadFileUrl = (token, photoId) =>
+  `${API}/download/${token}/file/${photoId}`;
+
 export const fetchOrder = async (orderId) => {
   const { data } = await api.get(`/orders/${orderId}`);
   return data;

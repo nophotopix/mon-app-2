@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, UploadFile, File, HTTPException, Header, Form
+from fastapi import FastAPI, APIRouter, UploadFile, File, HTTPException, Header, Form, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, Response
 from dotenv import load_dotenv
@@ -7,12 +7,13 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 import shutil
+import secrets
 import requests
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
-from typing import List, Optional
+from typing import List, Optional, Dict
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 
 ROOT_DIR = Path(__file__).parent
@@ -36,6 +37,10 @@ SENDGRID_API_KEY = os.environ.get('SENDGRID_API_KEY', '')
 SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'no-reply@nophotopix.com')
 SENDER_NAME = os.environ.get('SENDER_NAME', 'No.Photo.Pix')
 PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '')
+
+# Stripe
+STRIPE_API_KEY = os.environ.get('STRIPE_API_KEY', '')
+DOWNLOAD_TOKEN_TTL_DAYS = 7
 
 # ============= EMERGENT OBJECT STORAGE =============
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
@@ -219,6 +224,17 @@ class Order(BaseModel):
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     validated_at: Optional[str] = None
     email_sent: bool = False
+    download_token: Optional[str] = None
+    download_expires_at: Optional[str] = None
+    stripe_session_id: Optional[str] = None
+    album_id: Optional[str] = None
+
+
+class StripeCheckoutRequest(BaseModel):
+    email: str
+    photo_ids: List[str]
+    album_id: Optional[str] = None
+    origin_url: str
 
 
 class OrderWithPhotos(Order):
@@ -723,6 +739,361 @@ async def delete_order(order_id: str, x_admin_token: Optional[str] = Header(None
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Commande introuvable")
     return {"success": True}
+
+
+# ============= STRIPE PAYMENTS + DOWNLOAD =============
+
+PACK_PRICES = {1: 3.0, 3: 8.0, 5: 12.0}
+
+
+def _compute_pack_total(count: int) -> float:
+    """Compute minimum cost using packs of 1=3€, 3=8€, 5=12€ (DP)."""
+    if count <= 0:
+        return 0.0
+    INF = float("inf")
+    dp = [INF] * (count + 1)
+    dp[0] = 0.0
+    for i in range(1, count + 1):
+        for qty, price in PACK_PRICES.items():
+            if i - qty >= 0 and dp[i - qty] + price < dp[i]:
+                dp[i] = dp[i - qty] + price
+    return round(dp[count], 2)
+
+
+def _gen_download_token() -> str:
+    return secrets.token_urlsafe(40)
+
+
+def _send_download_email(order: dict, album_name: Optional[str] = None) -> tuple:
+    """Send the customer email with their secure download link."""
+    base = (PUBLIC_BASE_URL or "").rstrip("/")
+    download_url = f"{base}/download/{order['download_token']}"
+    photo_count = len(order.get("photo_ids", []))
+
+    html = f"""
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#050505;color:#fff;padding:40px 24px;">
+      <h1 style="color:#E8B23A;font-family:Georgia,serif;font-weight:300;font-size:32px;margin:0 0 8px;">Merci pour votre achat !</h1>
+      <p style="color:#aaa;font-size:14px;letter-spacing:2px;text-transform:uppercase;margin:0 0 24px;">No.Photo.Pix · Paiement confirmé</p>
+      <p style="color:#fff;font-size:16px;line-height:1.6;">
+        Votre paiement de <strong style="color:#E8B23A;">{order['total']} €</strong> a été confirmé.
+        Vous avez accès au téléchargement HD de <strong>{photo_count} photo(s)</strong>{f" de l'album <em>{album_name}</em>" if album_name else ""}.
+      </p>
+      <div style="margin:32px 0;text-align:center;">
+        <a href="{download_url}"
+           style="display:inline-block;background:linear-gradient(135deg,#E8B23A,#FFD66B,#C8902A);color:#000;
+                  padding:14px 28px;border-radius:4px;text-decoration:none;font-weight:600;
+                  letter-spacing:1px;font-size:14px;">
+          TÉLÉCHARGER MES PHOTOS
+        </a>
+      </div>
+      <p style="color:#888;font-size:13px;line-height:1.6;">
+        Ce lien est valable pendant <strong>7 jours</strong> à compter de la réception de cet email.
+        Conservez-le précieusement.
+      </p>
+      <p style="color:#666;font-size:11px;margin-top:32px;word-break:break-all;">
+        Lien direct : {download_url}
+      </p>
+      <p style="color:#666;font-size:12px;margin-top:24px;border-top:1px solid #222;padding-top:16px;">
+        Une question ? Contactez-nous sur Instagram <a href="https://www.instagram.com/no_photo_pix/" style="color:#E8B23A;">@no_photo_pix</a>.
+      </p>
+    </div>
+    """
+
+    if SENDGRID_API_KEY:
+        try:
+            from sendgrid import SendGridAPIClient
+            from sendgrid.helpers.mail import Mail, From
+            message = Mail(
+                from_email=From(SENDER_EMAIL, SENDER_NAME),
+                to_emails=order["email"],
+                subject=f"Vos photos No.Photo.Pix sont prêtes ({photo_count} photo(s))",
+                html_content=html,
+            )
+            sg = SendGridAPIClient(SENDGRID_API_KEY)
+            resp = sg.send(message)
+            logger.info(f"Stripe email sent to {order['email']}, status={resp.status_code}")
+            return True, None
+        except Exception as exc:
+            err = str(exc)
+            logger.error(f"SendGrid (Stripe email) failed: {err}")
+            return False, err
+    else:
+        logger.info(f"[MOCKED EMAIL] download_url={download_url} to {order['email']}")
+        return True, None
+
+
+def _get_stripe_checkout(host_url: str):
+    """Initialize Stripe checkout helper. Uses STRIPE_API_KEY env var (sk_test_emergent by default)."""
+    from emergentintegrations.payments.stripe.checkout import StripeCheckout
+    webhook_url = f"{host_url.rstrip('/')}/api/webhook/stripe"
+    return StripeCheckout(api_key=STRIPE_API_KEY, webhook_url=webhook_url)
+
+
+@api_router.post("/payments/checkout/session")
+async def create_stripe_checkout(body: StripeCheckoutRequest, request: Request):
+    """Create a Stripe Checkout Session for the selected photos. Amount computed server-side."""
+    from emergentintegrations.payments.stripe.checkout import CheckoutSessionRequest
+
+    if "@" not in body.email or "." not in body.email:
+        raise HTTPException(status_code=400, detail="Email invalide")
+    if not body.photo_ids:
+        raise HTTPException(status_code=400, detail="Aucune photo sélectionnée")
+    if not STRIPE_API_KEY:
+        raise HTTPException(status_code=500, detail="Stripe non configuré")
+
+    # Verify photos exist
+    photo_ids = list(dict.fromkeys(body.photo_ids))  # dedupe, preserve order
+    found = await db.photos.count_documents({"id": {"$in": photo_ids}})
+    if found != len(photo_ids):
+        raise HTTPException(status_code=400, detail="Photos invalides")
+
+    # ✋ Backend-computed amount (never trust frontend).
+    amount = _compute_pack_total(len(photo_ids))
+
+    # Build URLs from origin
+    origin = body.origin_url.rstrip("/")
+    success_url = f"{origin}/checkout/success?session_id={{CHECKOUT_SESSION_ID}}"
+    cancel_url = f"{origin}/"
+
+    # Pre-create order in DB (pending)
+    order = Order(
+        email=body.email.strip().lower(),
+        photo_ids=photo_ids,
+        total=amount,
+        payment_method="stripe",
+        album_id=body.album_id,
+    )
+    await db.orders.insert_one(order.model_dump())
+
+    # Create Stripe session
+    host_url = str(request.base_url)
+    stripe_checkout = _get_stripe_checkout(host_url)
+    session = await stripe_checkout.create_checkout_session(
+        CheckoutSessionRequest(
+            amount=amount,
+            currency="eur",
+            success_url=success_url,
+            cancel_url=cancel_url,
+            metadata={
+                "order_id": order.id,
+                "email": order.email,
+                "photo_count": str(len(photo_ids)),
+                "album_id": body.album_id or "",
+            },
+        )
+    )
+
+    # Record payment transaction
+    await db.payment_transactions.insert_one({
+        "session_id": session.session_id,
+        "order_id": order.id,
+        "email": order.email,
+        "amount": amount,
+        "currency": "eur",
+        "payment_status": "initiated",
+        "status": "open",
+        "metadata": {"order_id": order.id, "photo_count": str(len(photo_ids))},
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    # Link session to order
+    await db.orders.update_one(
+        {"id": order.id}, {"$set": {"stripe_session_id": session.session_id}}
+    )
+
+    return {"url": session.url, "session_id": session.session_id, "order_id": order.id}
+
+
+async def _finalize_paid_order(session_id: str) -> Optional[dict]:
+    """Idempotent finalization: mark order paid, generate token, send email. Safe to call multiple times."""
+    order = await db.orders.find_one({"stripe_session_id": session_id}, {"_id": 0})
+    if not order:
+        return None
+    if order["status"] == "completed" and order.get("download_token"):
+        return order  # already processed
+
+    token = _gen_download_token()
+    expires_at = (datetime.now(timezone.utc) + timedelta(days=DOWNLOAD_TOKEN_TTL_DAYS)).isoformat()
+    now = datetime.now(timezone.utc).isoformat()
+
+    await db.orders.update_one(
+        {"id": order["id"], "status": {"$ne": "completed"}},
+        {"$set": {
+            "status": "completed",
+            "validated_at": now,
+            "download_token": token,
+            "download_expires_at": expires_at,
+        }},
+    )
+
+    # Re-fetch fresh
+    order = await db.orders.find_one({"id": order["id"]}, {"_id": 0})
+
+    # Send email (best-effort)
+    album_name = None
+    if order.get("album_id"):
+        album = await db.albums.find_one({"id": order["album_id"]}, {"_id": 0, "name": 1})
+        if album:
+            album_name = album.get("name")
+    sent, _ = _send_download_email(order, album_name=album_name)
+    await db.orders.update_one({"id": order["id"]}, {"$set": {"email_sent": sent}})
+    order["email_sent"] = sent
+    return order
+
+
+@api_router.get("/payments/checkout/status/{session_id}")
+async def get_checkout_status(session_id: str, request: Request):
+    """Poll Stripe session status. Finalizes order (idempotent) when status=paid."""
+    if not STRIPE_API_KEY:
+        raise HTTPException(status_code=500, detail="Stripe non configuré")
+    host_url = str(request.base_url)
+    stripe_checkout = _get_stripe_checkout(host_url)
+    status = await stripe_checkout.get_checkout_status(session_id)
+
+    # Update payment_transactions
+    await db.payment_transactions.update_one(
+        {"session_id": session_id},
+        {"$set": {
+            "status": status.status,
+            "payment_status": status.payment_status,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+
+    response = {
+        "status": status.status,
+        "payment_status": status.payment_status,
+        "amount_total": status.amount_total,
+        "currency": status.currency,
+    }
+    if status.payment_status == "paid":
+        order = await _finalize_paid_order(session_id)
+        if order:
+            response["order_id"] = order["id"]
+            response["download_token"] = order.get("download_token")
+    return response
+
+
+@api_router.post("/webhook/stripe")
+async def stripe_webhook(request: Request):
+    """Stripe webhook receiver. Validates signature and finalizes orders."""
+    if not STRIPE_API_KEY:
+        raise HTTPException(status_code=500, detail="Stripe non configuré")
+    body = await request.body()
+    host_url = str(request.base_url)
+    stripe_checkout = _get_stripe_checkout(host_url)
+    try:
+        webhook_response = await stripe_checkout.handle_webhook(
+            body, request.headers.get("Stripe-Signature")
+        )
+    except Exception as exc:
+        logger.error(f"Stripe webhook failed: {exc}")
+        raise HTTPException(status_code=400, detail="Webhook invalide")
+
+    # Update payment_transactions
+    if webhook_response.session_id:
+        await db.payment_transactions.update_one(
+            {"session_id": webhook_response.session_id},
+            {"$set": {
+                "event_type": webhook_response.event_type,
+                "event_id": webhook_response.event_id,
+                "payment_status": webhook_response.payment_status,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+        if webhook_response.payment_status == "paid":
+            await _finalize_paid_order(webhook_response.session_id)
+    return {"received": True}
+
+
+# ============= DOWNLOAD =============
+
+async def _get_download_order(token: str) -> dict:
+    if not token:
+        raise HTTPException(status_code=404, detail="Lien invalide")
+    order = await db.orders.find_one({"download_token": token}, {"_id": 0})
+    if not order or order.get("status") != "completed":
+        raise HTTPException(status_code=404, detail="Lien invalide ou commande non payée")
+    # Check expiration
+    expires_str = order.get("download_expires_at")
+    if expires_str:
+        try:
+            expires = datetime.fromisoformat(expires_str.replace("Z", "+00:00"))
+            if datetime.now(timezone.utc) > expires:
+                raise HTTPException(status_code=410, detail="Ce lien de téléchargement a expiré")
+        except (ValueError, TypeError):
+            pass
+    return order
+
+
+@api_router.get("/download/{token}")
+async def download_info(token: str):
+    """Public endpoint to get the order content for a download token."""
+    order = await _get_download_order(token)
+    photos = await db.photos.find(
+        {"id": {"$in": order.get("photo_ids", [])}}, {"_id": 0}
+    ).to_list(2000)
+    by_id = {p["id"]: _hydrate_photo(p) for p in photos}
+    ordered_photos = [by_id[pid] for pid in order["photo_ids"] if pid in by_id]
+
+    album_name = None
+    if order.get("album_id"):
+        album = await db.albums.find_one({"id": order["album_id"]}, {"_id": 0, "name": 1})
+        if album:
+            album_name = album.get("name")
+
+    return {
+        "order_id": order["id"],
+        "email": order["email"],
+        "total": order["total"],
+        "validated_at": order.get("validated_at"),
+        "expires_at": order.get("download_expires_at"),
+        "album_name": album_name,
+        "photos": ordered_photos,
+    }
+
+
+@api_router.get("/download/{token}/file/{photo_id}")
+async def download_file(token: str, photo_id: str):
+    """Stream a specific photo file (must belong to the validated order)."""
+    order = await _get_download_order(token)
+    if photo_id not in order.get("photo_ids", []):
+        raise HTTPException(status_code=403, detail="Photo non autorisée pour ce lien")
+    photo = await db.photos.find_one({"id": photo_id}, {"_id": 0})
+    if not photo:
+        raise HTTPException(status_code=404, detail="Photo introuvable")
+
+    storage_path = photo.get("storage_path")
+    if photo.get("storage_kind") == "object" and storage_path:
+        result = storage_get(storage_path)
+        if not result:
+            raise HTTPException(status_code=404, detail="Fichier introuvable")
+        data, content_type = result
+        ext = (storage_path.rsplit(".", 1)[-1] or "jpg").lower()
+        filename = f"nophotopix-{photo_id[:8]}.{ext}"
+        return Response(
+            content=data,
+            media_type=content_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Cache-Control": "private, max-age=3600",
+            },
+        )
+
+    # Fallback for local storage
+    url = photo.get("url", "")
+    if url.startswith("/uploads/"):
+        file_path = UPLOAD_DIR / url.replace("/uploads/", "")
+        if file_path.exists():
+            ext = file_path.suffix.lstrip(".") or "jpg"
+            return Response(
+                content=file_path.read_bytes(),
+                media_type=MIME_TYPES.get(ext, "application/octet-stream"),
+                headers={
+                    "Content-Disposition": f'attachment; filename="nophotopix-{photo_id[:8]}.{ext}"',
+                },
+            )
+    raise HTTPException(status_code=404, detail="Fichier indisponible")
 
 
 # Include the router in the main app
