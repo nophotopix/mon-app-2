@@ -4,6 +4,7 @@ import Gallery from "./pages/Gallery";
 import Admin from "./pages/Admin";
 import Success from "./pages/Success";
 import AlbumView from "./pages/AlbumView";
+import Download from "./pages/Download";
 import { Toaster } from "sonner";
 
 function App() {
@@ -15,6 +16,7 @@ function App() {
           <Route path="/admin" element={<Admin />} />
           <Route path="/album/:albumId" element={<AlbumView />} />
           <Route path="/success/:orderId" element={<Success />} />
+          <Route path="/download/:token" element={<Download />} />
         </Routes>
       </BrowserRouter>
       <Toaster

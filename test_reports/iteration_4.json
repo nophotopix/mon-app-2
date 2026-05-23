@@ -1,0 +1,44 @@
+{
+  "summary": "Full e2e of the manual-validation download flow (No.Photo.Pix). 24/24 backend pytest pass on the production preview URL covering: orders CRUD, admin validate (with 502 path when SendGrid key is invalid), idempotent re-validation, GET /api/download/{token}, /api/download/{token}/file/{photo_id} for both seeded Unsplash and uploaded photos, 403 on unauthorized photo_id, 404 on invalid token, and 410 on expired token (DB-patched expiry). Playwright verified frontend /download/{token} renders 'Vos photos sont prêtes' title, order id, expiry, grid with download-photo-{id} anchors pointing to /api/download/{token}/file/{photo_id} (HEAD request returned 200 + content-disposition=attachment). Frontend /download/{invalid} shows 'Lien invalide' error state. /success/{orderId} shows the 'ACCÉDER À MES PHOTOS' CTA with correct href to /download/{token}. CheckoutModal contains zero references to Stripe.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/admin/orders/{id}/validate", "issue": "Returns HTTP 502 'Commande validée mais email NON envoyé' because SENDGRID_API_KEY in /app/backend/.env is invalid (SendGrid responds 401). Order IS validated and download_token IS generated correctly — confirmed by re-GET. This is expected per the review request (SendGrid mocked in this env)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/download/{token} grid", "issues": ["For uploaded photos with relative /uploads/... URL the <img> on the grid sometimes renders as broken (alt text shown). The download anchor still works (HTTP 200, attachment header). resolveImageUrl() may not be prefixing REACT_APP_BACKEND_URL consistently for relative upload URLs. This is a thumbnail-only cosmetic issue and was already noted in iteration_3 for admin OrdersTab thumbnails."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Optional, cosmetic) Ensure resolveImageUrl() prefixes REACT_APP_BACKEND_URL for relative '/uploads/...' photo URLs so the grid thumbnail on /download/{token} renders the preview (it falls back to broken alt today; the actual HD download is unaffected).",
+    "(Production prerequisite) Replace SENDGRID_API_KEY in /app/backend/.env with a valid key so validate_order returns 200 and email is actually delivered. Test currently accepts 502 only because the env key is invalid."
+  ],
+  "critical_code_review_comments": [
+    "server.py validate_order is correctly idempotent: re-validate of a completed order returns the existing token/expires_at/validated_at without re-issuing — verified by test_validate_is_idempotent.",
+    "server.py _get_download_order correctly distinguishes 404 (no token / not completed) from 410 (expired) — verified.",
+    "server.py download_file streams object-storage and proxies external (Unsplash) URLs while preserving token gating; Content-Disposition set with filename — verified for seed + uploaded photos.",
+    "server.py: photo._id is excluded from all responses (projection {'_id': 0}). Good.",
+    "server.py: PUBLIC_BASE_URL used to build the email link points to a Netlify domain ('https://venerable-beignet-9414de.netlify.app') which differs from the actual frontend URL in /app/frontend/.env (REACT_APP_BACKEND_URL). If the real public site is the netlify URL this is fine; otherwise the email link will 404. Worth confirming with the user.",
+    "Download.jsx: error handling correctly maps HTTP 410 -> 'expired' state and 404 -> 'notfound' (Lien invalide). data-testid coverage is good: download-title, download-order-id, download-expires, download-photos-grid, download-photo-{id}, download-error-title.",
+    "Success.jsx: success-download-cta only renders when order.download_token is present — exactly matches spec.",
+    "CheckoutModal: no Stripe references; only paypal/wero/revolut method buttons (checkout-method-{id})."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_api.py — fixed ADMIN_PASSWORD to 'Noclan97140$' (previous iteration had '97140' which would fail against current /app/backend/.env); updated test_validate to accept both 200 and 502 (SendGrid mocked); fixed test_upload_and_delete_flow to handle object-storage absolute URLs; added TestDownloadFlow with 7 tests (info-valid, info-invalid, file-seed, file-uploaded, file-unauthorized, expired-410, validate-idempotent)."
+  ],
+  "success_rate": {"backend": "100% (24/24)", "frontend": "100% (download, error, success CTA all verified)"},
+  "test_credentials": "Admin: X-Admin-Token: Noclan97140$ (from /app/backend/.env -> ADMIN_PASSWORD; confirmed by /app/memory/test_credentials.md). NOTE: the previous iteration_3 report incorrectly listed '97140' — that is wrong.",
+  "seed_data_creation": "Tests create TEST_-prefixed orders/photos and delete them in the same test. The /tmp/test_order.json E2E order was deleted after Playwright verification.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Admin token is 'Noclan97140$' (the trailing $ is part of the password). Backend /api/admin/orders/{id}/validate returns 502 with detail starting 'Commande validée mais email NON envoyé' when SendGrid key is invalid — order is still validated, just re-GET to confirm. Download testids: download-title, download-order-id, download-expires, download-photos-grid, download-photo-{id}, download-error-title, download-contact-link, download-back-home, download-loading. Success page testid for CTA: success-download-cta. To force expiry for 410 test, pymongo update orders.download_expires_at to a past ISO timestamp. download_file proxies external image URLs (Unsplash) so an unauthenticated request to the URL works without the token only when fetching the raw Unsplash image directly — but /api/download/{token}/file/{photo_id} is gated by token+order. PUBLIC_BASE_URL in .env points to Netlify, which is what is embedded in the email link, NOT the preview agent URL.",
+  "rca of the issue": "No functional bugs. The 502 path on validate is by design when SendGrid is misconfigured (the order is correctly persisted as completed with token+expiry, just the email is not sent). Confirmed by re-fetching GET /api/orders/{id} after validate."
+}

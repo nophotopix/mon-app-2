@@ -707,6 +707,12 @@ async def list_orders(x_admin_token: Optional[str] = Header(None)):
 async def validate_order(
     order_id: str, x_admin_token: Optional[str] = Header(None)
 ):
+    """Manual admin validation for PayPal/Wero/Revolut orders.
+    On validation:
+      - generates a secure download token (valid 7 days)
+      - sends an automated SendGrid email with the download link
+    Idempotent: re-validating a completed order returns it as-is without re-sending email.
+    """
     _check_admin(x_admin_token)
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
@@ -715,17 +721,39 @@ async def validate_order(
         await _hydrate_order(order)
         return order
 
-    await _hydrate_order(order)
-    sent, send_error = _send_order_email(order, order["photos"])
-
+    # Generate secure download token + 7-day expiration
+    token = _gen_download_token()
+    expires_at = (datetime.now(timezone.utc) + timedelta(days=DOWNLOAD_TOKEN_TTL_DAYS)).isoformat()
     now = datetime.now(timezone.utc).isoformat()
+
     await db.orders.update_one(
         {"id": order_id},
-        {"$set": {"status": "completed", "validated_at": now, "email_sent": sent}},
+        {"$set": {
+            "status": "completed",
+            "validated_at": now,
+            "download_token": token,
+            "download_expires_at": expires_at,
+        }},
     )
+    # Refresh order in memory
     order["status"] = "completed"
     order["validated_at"] = now
+    order["download_token"] = token
+    order["download_expires_at"] = expires_at
+
+    # Resolve album name (for nicer email copy)
+    album_name = None
+    if order.get("album_id"):
+        album = await db.albums.find_one({"id": order["album_id"]}, {"_id": 0, "name": 1})
+        if album:
+            album_name = album.get("name")
+
+    # Send the automated download email (secure link)
+    sent, send_error = _send_download_email(order, album_name=album_name)
+    await db.orders.update_one({"id": order_id}, {"$set": {"email_sent": sent}})
     order["email_sent"] = sent
+
+    await _hydrate_order(order)
     if not sent and send_error:
         # Surface the SendGrid error to the admin (non-fatal — order is still completed)
         raise HTTPException(status_code=502, detail=f"Commande validée mais email NON envoyé : {send_error}")
@@ -1093,6 +1121,32 @@ async def download_file(token: str, photo_id: str):
                     "Content-Disposition": f'attachment; filename="nophotopix-{photo_id[:8]}.{ext}"',
                 },
             )
+
+    # External URL (e.g., Unsplash seed photos) — proxy the bytes so we keep the
+    # secure token gating and force a proper download filename.
+    if url.startswith("http://") or url.startswith("https://"):
+        try:
+            r = requests.get(url, timeout=60, stream=False)
+            r.raise_for_status()
+            content_type = r.headers.get("Content-Type", "image/jpeg")
+            ext = "jpg"
+            if "png" in content_type:
+                ext = "png"
+            elif "webp" in content_type:
+                ext = "webp"
+            elif "gif" in content_type:
+                ext = "gif"
+            return Response(
+                content=r.content,
+                media_type=content_type,
+                headers={
+                    "Content-Disposition": f'attachment; filename="nophotopix-{photo_id[:8]}.{ext}"',
+                    "Cache-Control": "private, max-age=3600",
+                },
+            )
+        except Exception as exc:
+            logger.error(f"Proxy download failed for {photo_id}: {exc}")
+
     raise HTTPException(status_code=404, detail="Fichier indisponible")
 
 

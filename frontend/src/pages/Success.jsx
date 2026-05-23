@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { Header } from "../components/Header";
-import { fetchOrder, resolveImageUrl } from "../lib/api";
+import { fetchOrder, resolveImageUrl, downloadFileUrl } from "../lib/api";
 import { PaymentMethodIcon } from "../components/PaymentIcons";
 import { toast } from "sonner";
 import {
@@ -192,6 +192,27 @@ export default function Success() {
           </div>
         </div>
 
+        {/* Download CTA — secure 7-day link */}
+        {isCompleted && order.download_token && (
+          <div className="border border-emerald-400/30 rounded-sm bg-gradient-to-br from-emerald-500/5 via-[#0a0a0a] to-[#0a0a0a] p-6 lg:p-8 mb-12 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <p className="text-eyebrow text-emerald-400 mb-2">Téléchargement HD disponible</p>
+              <p className="text-white text-base leading-relaxed">
+                Accédez à vos {Array.isArray(order.photo_ids) ? order.photo_ids.length : 0} photo(s) via votre lien sécurisé.
+                Valable 7 jours.
+              </p>
+            </div>
+            <Link
+              to={`/download/${order.download_token}`}
+              data-testid="success-download-cta"
+              className="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-[#E8B23A] via-[#FFD66B] to-[#C8902A] text-black px-6 py-3 rounded-sm font-semibold tracking-wide text-sm hover:brightness-110 transition shrink-0"
+            >
+              <DownloadSimple size={16} weight="bold" />
+              ACCÉDER À MES PHOTOS
+            </Link>
+          </div>
+        )}
+
         {/* Photos */}
         <div className="mb-12">
           <div className="flex items-end justify-between mb-6">
@@ -222,7 +243,11 @@ export default function Success() {
                 {isCompleted ? (
                   <a
                     data-testid={`download-${p.id}`}
-                    href={resolveImageUrl(p.url)}
+                    href={
+                      order.download_token
+                        ? downloadFileUrl(order.download_token, p.id)
+                        : resolveImageUrl(p.url)
+                    }
                     download={p.title || "photo"}
                     target="_blank"
                     rel="noopener noreferrer"
