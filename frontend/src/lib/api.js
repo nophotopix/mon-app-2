@@ -1,8 +1,6 @@
 import axios from "axios";
 
-const BACKEND_URL =
-process.env.REACT_APP_BACKEND_URL ||
-"https://image-select-pay.preview.emergentagent.com";
+const BACKEND_URL = "https://vscode-5e6df34b-6869-4822-b6a4-ab7166149c3a.preview.emergentagent.com/proxy/8000";
 
 export const API = `${BACKEND_URL}/api`;
 export const ASSET_BASE = BACKEND_URL;
