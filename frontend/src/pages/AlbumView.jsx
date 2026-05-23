@@ -1,12 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { Header } from "../components/Header";
-import { PhotoCard } from "../components/PhotoCard";
+import { PhotoTile } from "../components/PhotoTile";
+import { Lightbox } from "../components/Lightbox";
 import { PaymentBar } from "../components/PaymentBar";
 import { CheckoutModal } from "../components/CheckoutModal";
-import { fetchAlbum, fetchConfig } from "../lib/api";
+import { fetchAlbum, fetchConfig, resolveImageUrl } from "../lib/api";
 import { computeTotal, computeSavings } from "../lib/pricing";
-import { ArrowLeft, CalendarBlank } from "@phosphor-icons/react";
+import {
+  ArrowLeft,
+  CalendarBlank,
+  ImageSquare,
+  ShareNetwork,
+} from "@phosphor-icons/react";
 import { toast } from "sonner";
 
 const formatDate = (date) => {
@@ -39,9 +45,12 @@ export default function AlbumView() {
   const [selected, setSelected] = useState(new Set());
   const [loading, setLoading] = useState(true);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(null);
 
   useEffect(() => {
     setLoading(true);
+    setSelected(new Set());
+    setLightboxIndex(null);
     Promise.all([fetchAlbum(albumId), fetchConfig()])
       .then(([a, cfg]) => {
         setAlbum(a);
@@ -54,7 +63,10 @@ export default function AlbumView() {
       .finally(() => setLoading(false));
   }, [albumId]);
 
-  const photos = Array.isArray(album?.photos) ? album.photos : [];
+  const photos = useMemo(
+    () => (Array.isArray(album?.photos) ? album.photos : []),
+    [album]
+  );
 
   const toggle = (id) => {
     setSelected((prev) => {
@@ -97,81 +109,145 @@ export default function AlbumView() {
     );
   }
 
+  const handleShare = async () => {
+    const url = window.location.href;
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: `${album.name} · No.Photo.Pix`,
+          url,
+        });
+      } else {
+        await navigator.clipboard.writeText(url);
+        toast.success("Lien copié dans le presse-papier");
+      }
+    } catch {
+      // user cancelled
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#050505] text-white">
       <Header />
 
-      {/* Cover hero */}
-      <section
-        data-testid="album-hero"
-        className="relative max-w-[1600px] mx-auto px-6 lg:px-12 pt-12 pb-16"
-      >
-        <Link
-          to="/"
-          data-testid="album-back-btn"
-          className="inline-flex items-center gap-2 text-white/60 hover:text-white text-eyebrow mb-8 transition-colors"
-        >
-          <ArrowLeft size={14} /> Tous les albums
-        </Link>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-end">
-          <div>
-            <p className="text-eyebrow text-[#E8B23A] mb-4">Album</p>
-            <h1
-              data-testid="album-title"
-              className="font-display text-5xl sm:text-6xl lg:text-7xl text-white leading-[0.95]"
+      {/* Hero — full-width cinematic banner */}
+      <section data-testid="album-hero" className="relative overflow-hidden">
+        <div className="relative h-[42vh] min-h-[280px] max-h-[460px] w-full">
+          {album.cover_url ? (
+            <img
+              src={resolveImageUrl(album.cover_url)}
+              alt={album.name}
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+          ) : (
+            <div className="absolute inset-0 bg-gradient-to-br from-[#1a1206] via-[#0a0a0a] to-black" />
+          )}
+          {/* Layered overlays */}
+          <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-black/40 to-black" />
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(232,178,58,0.18),transparent_60%)]" />
+
+          {/* Top-left back button */}
+          <div className="absolute top-0 left-0 right-0 z-10 max-w-[1600px] mx-auto px-6 lg:px-12 pt-6">
+            <Link
+              to="/"
+              data-testid="album-back-btn"
+              className="inline-flex items-center gap-2 text-white/80 hover:text-white text-eyebrow bg-black/40 backdrop-blur-md px-4 py-2 rounded-full transition-colors border border-white/10"
             >
-              {album.name}
-            </h1>
-            {album.date && (
-              <p className="mt-6 text-white/60 text-base flex items-center gap-2">
-                <CalendarBlank size={16} />
-                {formatDate(album.date)}
-              </p>
-            )}
-            {album.description && (
-              <p className="mt-4 text-white/60 text-lg leading-relaxed max-w-xl">
-                {album.description}
-              </p>
-            )}
-            <p className="mt-6 text-white/40 text-sm">
-              <span className="text-white font-display text-2xl">{photos.length}</span>{" "}
-              photo{photos.length > 1 ? "s" : ""} · 3 € pièce
+              <ArrowLeft size={14} /> Tous les albums
+            </Link>
+          </div>
+
+          {/* Center title block */}
+          <div className="absolute inset-0 flex items-end">
+            <div className="max-w-[1600px] mx-auto w-full px-6 lg:px-12 pb-10 lg:pb-14">
+              <p className="text-eyebrow text-[#E8B23A] mb-3">Album</p>
+              <h1
+                data-testid="album-title"
+                className="font-display text-4xl sm:text-6xl lg:text-7xl text-white leading-[0.95] max-w-4xl"
+              >
+                {album.name}
+              </h1>
+              <div className="mt-5 flex flex-wrap items-center gap-3 sm:gap-5 text-white/70 text-sm">
+                {album.date && (
+                  <span className="inline-flex items-center gap-1.5">
+                    <CalendarBlank size={14} />
+                    {formatDate(album.date)}
+                  </span>
+                )}
+                <span className="w-1 h-1 rounded-full bg-white/30 hidden sm:inline-block" />
+                <span className="inline-flex items-center gap-1.5">
+                  <ImageSquare size={14} weight="fill" />
+                  <span data-testid="album-photo-count">{photos.length}</span>{" "}
+                  photo{photos.length > 1 ? "s" : ""}
+                </span>
+                <span className="w-1 h-1 rounded-full bg-white/30 hidden sm:inline-block" />
+                <span className="text-[#E8B23A] font-medium">3 € / photo</span>
+                <button
+                  data-testid="album-share-btn"
+                  onClick={handleShare}
+                  className="ml-auto inline-flex items-center gap-1.5 text-white/60 hover:text-white text-xs transition-colors"
+                >
+                  <ShareNetwork size={14} /> Partager
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Description bar (only if present) */}
+        {album.description && (
+          <div className="max-w-[1600px] mx-auto px-6 lg:px-12 py-6 border-b border-white/5">
+            <p
+              data-testid="album-description"
+              className="text-white/60 text-base leading-relaxed max-w-3xl"
+            >
+              {album.description}
             </p>
           </div>
-          {album.cover_url && (
-            <div className="aspect-[4/3] overflow-hidden rounded-sm border border-[#E8B23A]/20">
-              <img
-                src={album.cover_url}
-                alt={album.name}
-                className="w-full h-full object-cover"
-              />
-            </div>
-          )}
-        </div>
+        )}
       </section>
 
       {/* Photos grid */}
       <section
         data-testid="album-photos-section"
-        className="max-w-[1600px] mx-auto px-6 lg:px-12 pb-40"
+        className="max-w-[1600px] mx-auto px-6 lg:px-12 pt-10 lg:pt-14 pb-40"
       >
+        <div className="flex items-end justify-between mb-8">
+          <div>
+            <p className="text-eyebrow text-white/40">La collection</p>
+            <h2 className="font-display text-2xl sm:text-3xl text-white mt-1">
+              Cliquez sur le cœur pour sélectionner
+            </h2>
+          </div>
+          <p className="text-white/40 text-xs sm:text-sm hidden sm:block">
+            Cliquez sur une photo pour l'agrandir
+          </p>
+        </div>
+
         {photos.length === 0 ? (
           <div
             data-testid="album-empty"
             className="text-center py-32 border border-white/10 rounded-sm"
           >
-            <p className="font-display text-3xl text-white/40">
+            <p className="font-display text-2xl sm:text-3xl text-white/40">
               Pas encore de photos dans cet album
+            </p>
+            <p className="text-white/30 text-sm mt-3">
+              Les photos seront ajoutées prochainement.
             </p>
           </div>
         ) : (
-          <div className="masonry">
+          <div
+            data-testid="album-photos-grid"
+            className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4"
+          >
             {photos.map((photo, idx) => (
-              <PhotoCard
+              <PhotoTile
                 key={photo.id}
                 photo={photo}
                 index={idx}
                 selected={selected.has(photo.id)}
+                onOpen={(i) => setLightboxIndex(i)}
                 onToggle={toggle}
               />
             ))}
@@ -195,6 +271,15 @@ export default function AlbumView() {
         selectedIds={Array.from(selected)}
         total={total}
         config={config}
+      />
+
+      <Lightbox
+        photos={photos}
+        index={lightboxIndex}
+        onClose={() => setLightboxIndex(null)}
+        onNavigate={setLightboxIndex}
+        selectedIds={selected}
+        onToggleSelect={toggle}
       />
     </div>
   );

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Header } from "../components/Header";
-import { PhotoCard } from "../components/PhotoCard";
+import { PhotoTile } from "../components/PhotoTile";
+import { Lightbox } from "../components/Lightbox";
 import { PaymentBar } from "../components/PaymentBar";
 import { CheckoutModal } from "../components/CheckoutModal";
 import { PaymentMethodIcon } from "../components/PaymentIcons";
@@ -65,6 +66,7 @@ export default function Gallery() {
   const savings = useMemo(() => computeSavings(count), [count]);
 
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(null);
 
   const handlePay = () => {
     if (count === 0) return;
@@ -239,13 +241,17 @@ export default function Gallery() {
             </p>
           </div>
         ) : (
-          <div className="masonry">
+          <div
+            data-testid="flat-photos-grid"
+            className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4"
+          >
             {photos.map((photo, idx) => (
-              <PhotoCard
+              <PhotoTile
                 key={photo.id}
                 photo={photo}
                 index={idx}
                 selected={selected.has(photo.id)}
+                onOpen={(i) => setLightboxIndex(i)}
                 onToggle={toggle}
               />
             ))}
@@ -473,6 +479,15 @@ export default function Gallery() {
         selectedIds={Array.from(selected)}
         total={total}
         config={config}
+      />
+
+      <Lightbox
+        photos={photos}
+        index={lightboxIndex}
+        onClose={() => setLightboxIndex(null)}
+        onNavigate={setLightboxIndex}
+        selectedIds={selected}
+        onToggleSelect={toggle}
       />
     </div>
   );
