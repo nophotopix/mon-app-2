@@ -152,7 +152,7 @@ export default function Success() {
             <div>
               <p className="text-eyebrow text-white/40">Photos</p>
               <p className="font-display text-2xl text-white mt-1">
-                {order.photo_ids.length}
+                {Array.isArray(order.photo_ids) ? order.photo_ids.length : 0}
               </p>
             </div>
             <div>
@@ -207,7 +207,7 @@ export default function Success() {
             data-testid="success-photos"
             className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4"
           >
-            {order.photos.map((p) => (
+            {(Array.isArray(order.photos) ? order.photos : []).map((p) => (
               <div
                 key={p.id}
                 className="relative aspect-square bg-[#0a0a0a] overflow-hidden rounded-sm group"

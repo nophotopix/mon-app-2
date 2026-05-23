@@ -41,16 +41,20 @@ export default function Admin() {
 
   const loadPhotos = async () => {
     try {
-      setPhotos(await fetchPhotos());
+      const data = await fetchPhotos();
+      setPhotos(Array.isArray(data) ? data : []);
     } catch {
+      setPhotos([]);
       toast.error("Erreur de chargement des photos");
     }
   };
 
   const loadOrders = async () => {
     try {
-      setOrders(await fetchAdminOrders(token));
+      const data = await fetchAdminOrders(token);
+      setOrders(Array.isArray(data) ? data : []);
     } catch (err) {
+      setOrders([]);
       if (err?.response?.status === 401) {
         toast.error("Session expirée");
         handleLogout();
@@ -317,7 +321,7 @@ const PhotosTab = ({ photos, uploading, fileInputRef, handleUpload, handleDelete
     {/* Photos grid */}
     <div className="mt-16">
       <p className="text-eyebrow text-white/40 mb-6">Photos publiées</p>
-      {photos.length === 0 ? (
+      {!Array.isArray(photos) || photos.length === 0 ? (
         <div className="border border-white/10 rounded-sm p-16 text-center text-white/40">
           Aucune photo pour le moment
         </div>
@@ -365,7 +369,7 @@ const OrdersTab = ({ orders, validatingId, onValidate, onDelete, onRefresh }) =>
         Actualiser
       </button>
     </div>
-    {orders.length === 0 ? (
+    {!Array.isArray(orders) || orders.length === 0 ? (
       <div className="border border-white/10 rounded-sm p-16 text-center text-white/40">
         Aucune commande pour le moment
       </div>
@@ -452,7 +456,7 @@ const OrdersTab = ({ orders, validatingId, onValidate, onDelete, onRefresh }) =>
 
               {/* Thumbnails */}
               <div className="mt-4 pt-4 border-t border-white/5 flex flex-wrap gap-2">
-                {o.photos.slice(0, 8).map((p) => (
+                {(Array.isArray(o.photos) ? o.photos : []).slice(0, 8).map((p) => (
                   <img
                     key={p.id}
                     src={resolveImageUrl(p.url)}
@@ -460,7 +464,7 @@ const OrdersTab = ({ orders, validatingId, onValidate, onDelete, onRefresh }) =>
                     className="w-14 h-14 object-cover rounded-sm"
                   />
                 ))}
-                {o.photos.length > 8 && (
+                {Array.isArray(o.photos) && o.photos.length > 8 && (
                   <div className="w-14 h-14 rounded-sm bg-white/5 flex items-center justify-center text-white/50 text-xs">
                     +{o.photos.length - 8}
                   </div>

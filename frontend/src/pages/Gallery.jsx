@@ -33,11 +33,15 @@ export default function Gallery() {
   useEffect(() => {
     Promise.all([fetchPhotos(), fetchConfig()])
       .then(([ph, cfg]) => {
-        setPhotos(ph);
-        setConfig(cfg);
+        setPhotos(Array.isArray(ph) ? ph : []);
+        setConfig(cfg && typeof cfg === "object" ? { ...config, ...cfg } : config);
       })
-      .catch(() => toast.error("Impossible de charger la galerie"))
+      .catch(() => {
+        setPhotos([]);
+        toast.error("Impossible de charger la galerie");
+      })
       .finally(() => setLoading(false));
+    // eslint-disable-next-line
   }, []);
 
   const toggle = (id) => {
@@ -208,7 +212,7 @@ export default function Gallery() {
               />
             ))}
           </div>
-        ) : photos.length === 0 ? (
+        ) : !Array.isArray(photos) || photos.length === 0 ? (
           <div
             data-testid="empty-gallery"
             className="text-center py-32 border border-white/10 rounded-sm"
