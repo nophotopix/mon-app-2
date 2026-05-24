@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { CalendarBlank, ImageSquare, Folder } from "@phosphor-icons/react";
 import { resolveImageUrl } from "../lib/api";
+import { ProtectedImage } from "./ProtectedImage";
 
 const formatDate = (date) => {
   if (!date) return "";
@@ -29,10 +30,10 @@ export const AlbumCard = ({ album, index = 0 }) => {
       {/* Cover */}
       <div className="aspect-[4/3] overflow-hidden bg-[#050505] relative">
         {album.cover_url ? (
-          <img
+          <ProtectedImage
             src={resolveImageUrl(album.cover_url)}
             alt={album.name}
-            loading="lazy"
+            wrapperClassName="w-full h-full"
             className="w-full h-full object-cover transition-transform duration-[800ms] ease-out group-hover:scale-[1.06]"
           />
         ) : (

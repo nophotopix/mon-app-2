@@ -7,6 +7,7 @@ import { PaymentBar } from "../components/PaymentBar";
 import { CheckoutModal } from "../components/CheckoutModal";
 import { fetchAlbum, fetchConfig, resolveImageUrl } from "../lib/api";
 import { computeTotal, computeSavings } from "../lib/pricing";
+import { ProtectedImage } from "../components/ProtectedImage";
 import {
   ArrowLeft,
   CalendarBlank,
@@ -134,9 +135,10 @@ export default function AlbumView() {
       <section data-testid="album-hero" className="relative overflow-hidden">
         <div className="relative h-[42vh] min-h-[280px] max-h-[460px] w-full">
           {album.cover_url ? (
-            <img
+            <ProtectedImage
               src={resolveImageUrl(album.cover_url)}
               alt={album.name}
+              wrapperClassName="absolute inset-0 w-full h-full"
               className="absolute inset-0 w-full h-full object-cover"
             />
           ) : (

@@ -376,6 +376,20 @@ class TestDownloadFlow:
         requests.delete(f"{API}/admin/orders/{order['id']}", headers=self.HDRS, timeout=10)
         client.close()
 
+    def test_validate_sets_48h_ttl(self):
+        """Validate-> download_expires_at - validated_at must be ~48h."""
+        import datetime as dt
+        order, _ = self._make_validated_order(n=1)
+        exp = dt.datetime.fromisoformat(order["download_expires_at"])
+        val = dt.datetime.fromisoformat(order["validated_at"])
+        delta = (exp - val).total_seconds()
+        # 48h +/- 1 minute tolerance
+        assert 47 * 3600 + 59 * 60 <= delta <= 48 * 3600 + 60, (
+            f"TTL delta is {delta}s, expected ~172800s (48h). "
+            f"validated_at={val.isoformat()} expires_at={exp.isoformat()}"
+        )
+        requests.delete(f"{API}/admin/orders/{order['id']}", headers=self.HDRS, timeout=10)
+
     def test_validate_is_idempotent(self):
         """Re-validating a completed order returns same token, doesn't re-issue."""
         order, _ = self._make_validated_order(n=1)

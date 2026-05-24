@@ -190,3 +190,43 @@ body {
 .slide-up {
     animation: slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
+
+
+/* ============= IMAGE PROTECTION ============= */
+/* Disable native drag and selection on all preview images (gallery, lightbox, success). */
+.protected-img img {
+    -webkit-user-drag: none;
+    -khtml-user-drag: none;
+    -moz-user-drag: none;
+    -o-user-drag: none;
+    user-drag: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    pointer-events: auto;
+}
+
+/* Watermark overlay: tiled diagonal "NPP" pattern in gold/white.
+   SVG embedded as data URL — repeats across the image. Rotated -28°.
+   Opacity tuned to remain elegant on dark photos but unmistakable on light ones. */
+.watermark-layer {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='260' height='180' viewBox='0 0 260 180'><g transform='rotate(-28 130 90)'><text x='10' y='60' font-family='Cormorant Garamond, Georgia, serif' font-size='34' font-weight='400' letter-spacing='8' fill='%23E8B23A' fill-opacity='0.32' stroke='%23ffffff' stroke-opacity='0.22' stroke-width='0.5'>NPP</text><text x='130' y='130' font-family='Cormorant Garamond, Georgia, serif' font-size='34' font-weight='400' letter-spacing='8' fill='%23ffffff' fill-opacity='0.22' stroke='%23E8B23A' stroke-opacity='0.28' stroke-width='0.5'>NPP</text></g></svg>");
+    background-repeat: repeat;
+    background-size: 260px 180px;
+    mix-blend-mode: screen;
+    opacity: 0.85;
+    transition: opacity 0.4s ease;
+}
+
+/* Slightly stronger watermark on hover so it can't be hidden by post-processing. */
+.protected-img:hover .watermark-layer {
+    opacity: 1;
+}
+
+/* Mobile: smaller pattern so it stays readable */
+@media (max-width: 640px) {
+    .watermark-layer {
+        background-size: 180px 130px;
+    }
+}

@@ -1,5 +1,6 @@
 import { Heart } from "@phosphor-icons/react";
 import { resolveImageUrl } from "../lib/api";
+import { ProtectedImage } from "./ProtectedImage";
 
 /**
  * Square photo tile for grid layouts (Album page, gallery photo lists).
@@ -23,14 +24,13 @@ export const PhotoTile = ({ photo, index, selected, onOpen, onToggle }) => {
       }}
       aria-label={photo.title || "Photo"}
     >
-      <img
+      <ProtectedImage
         src={resolveImageUrl(photo.url)}
         alt={photo.title || "Photo"}
-        loading="lazy"
+        wrapperClassName="w-full h-full"
         className={`w-full h-full object-cover transition-transform duration-700 ease-out ${
           selected ? "scale-[1.02]" : "group-hover:scale-105"
         }`}
-        draggable={false}
       />
 
       {/* Hover/selected dark overlay */}

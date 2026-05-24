@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { X, CaretLeft, CaretRight, Heart, DownloadSimple } from "@phosphor-icons/react";
 import { resolveImageUrl } from "../lib/api";
+import { ProtectedImage } from "./ProtectedImage";
 
 /**
  * Fullscreen photo lightbox.
@@ -159,21 +160,23 @@ export const Lightbox = ({
       <div
         className="relative w-full h-full flex items-center justify-center px-4 sm:px-20 py-20"
         onClick={(e) => e.stopPropagation()}
+        onContextMenu={(e) => e.preventDefault()}
       >
         {!loaded && (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-white/30 text-sm">Chargement...</div>
           </div>
         )}
-        <img
+        <ProtectedImage
           key={photo.id}
           src={src}
           alt={photo.title || "Photo"}
-          onLoad={() => setLoaded(true)}
-          className={`max-w-full max-h-full object-contain transition-opacity duration-300 ${
+          wrapperClassName="max-w-full max-h-full flex items-center justify-center"
+          className={`max-w-full max-h-[80vh] object-contain transition-opacity duration-300 ${
             loaded ? "opacity-100" : "opacity-0"
           }`}
-          draggable={false}
+          watermark={!allowDownload}
+          onLoad={() => setLoaded(true)}
         />
       </div>
 

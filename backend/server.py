@@ -40,7 +40,7 @@ PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '')
 
 # Stripe
 STRIPE_API_KEY = os.environ.get('STRIPE_API_KEY', '')
-DOWNLOAD_TOKEN_TTL_DAYS = 7
+DOWNLOAD_TOKEN_TTL_HOURS = 48
 
 # ============= EMERGENT OBJECT STORAGE =============
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
@@ -709,7 +709,7 @@ async def validate_order(
 ):
     """Manual admin validation for PayPal/Wero/Revolut orders.
     On validation:
-      - generates a secure download token (valid 7 days)
+      - generates a secure download token (valid 48 hours)
       - sends an automated SendGrid email with the download link
     Idempotent: re-validating a completed order returns it as-is without re-sending email.
     """
@@ -723,7 +723,7 @@ async def validate_order(
 
     # Generate secure download token + 7-day expiration
     token = _gen_download_token()
-    expires_at = (datetime.now(timezone.utc) + timedelta(days=DOWNLOAD_TOKEN_TTL_DAYS)).isoformat()
+    expires_at = (datetime.now(timezone.utc) + timedelta(hours=DOWNLOAD_TOKEN_TTL_HOURS)).isoformat()
     now = datetime.now(timezone.utc).isoformat()
 
     await db.orders.update_one(
@@ -815,8 +815,8 @@ def _send_download_email(order: dict, album_name: Optional[str] = None) -> tuple
         </a>
       </div>
       <p style="color:#888;font-size:13px;line-height:1.6;">
-        Ce lien est valable pendant <strong>7 jours</strong> à compter de la réception de cet email.
-        Conservez-le précieusement.
+        Ce lien est valable pendant <strong>48 heures</strong> à compter de la réception de cet email.
+        Téléchargements illimités pendant cette période. Conservez vos photos en local.
       </p>
       <p style="color:#666;font-size:11px;margin-top:32px;word-break:break-all;">
         Lien direct : {download_url}
@@ -941,7 +941,7 @@ async def _finalize_paid_order(session_id: str) -> Optional[dict]:
         return order  # already processed
 
     token = _gen_download_token()
-    expires_at = (datetime.now(timezone.utc) + timedelta(days=DOWNLOAD_TOKEN_TTL_DAYS)).isoformat()
+    expires_at = (datetime.now(timezone.utc) + timedelta(hours=DOWNLOAD_TOKEN_TTL_HOURS)).isoformat()
     now = datetime.now(timezone.utc).isoformat()
 
     await db.orders.update_one(

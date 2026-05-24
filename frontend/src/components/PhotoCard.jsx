@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { Heart } from "@phosphor-icons/react";
 import { resolveImageUrl } from "../lib/api";
+import { ProtectedImage } from "./ProtectedImage";
 
 export const PhotoCard = ({ photo, selected, onToggle, index }) => {
   const [popping, setPopping] = useState(false);
-  const [loaded, setLoaded] = useState(false);
 
   const handleToggle = (e) => {
     e.stopPropagation();
@@ -22,14 +22,10 @@ export const PhotoCard = ({ photo, selected, onToggle, index }) => {
     >
       {/* Image */}
       <div className="relative overflow-hidden">
-        {!loaded && (
-          <div className="absolute inset-0 bg-[#0f0f0f] animate-pulse" style={{ aspectRatio: "3/4" }} />
-        )}
-        <img
+        <ProtectedImage
           src={resolveImageUrl(photo.url)}
           alt={photo.title || "Photo"}
-          loading="lazy"
-          onLoad={() => setLoaded(true)}
+          wrapperClassName="w-full"
           className={`w-full h-auto block transition-transform duration-700 ease-out ${
             selected ? "scale-[1.02]" : "group-hover:scale-105"
           }`}

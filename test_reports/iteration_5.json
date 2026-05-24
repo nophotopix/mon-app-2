@@ -1,0 +1,37 @@
+{
+  "summary": "Verified watermark / anti-protection / 48h TTL changes for No.Photo.Pix. Backend pytest 25/25 PASS including new test_validate_sets_48h_ttl that asserts (download_expires_at - validated_at) is within ~48h ±60s. Frontend verified end-to-end: home gallery shows .protected-img wrappers for every tile, each with a sibling .watermark-layer (8/8 photo-tile-*); contextmenu and dragstart are preventDefault-ed on the <img>; lightbox (largest .protected-img) renders the SVG watermark backgroundImage (gold/white diagonal NPP); /success/{orderId} previews are watermarked (2/2) and the page says 'Valable 48 heures' (no '7 jours'); the 'ACCÉDER À MES PHOTOS' CTA (data-testid=success-download-cta) renders with the correct /download/{token} href; /download/{token} grid is CLEAN — 0/2 wrappers have .watermark-layer (watermark={false}) — and shows 'Valable 48 heures'; each tile is an anchor with href -> /api/download/{token}/file/{id}; HTTP GET on that URL returns 200 with Content-Disposition: attachment; filename=...jpg and 3.1MB body. Existing flows (photos list, admin login, upload, order create, validate, delete) still pass.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/admin/orders/{id}/validate", "issue": "Returns HTTP 502 'Commande validée mais email NON envoyé' because SENDGRID_API_KEY is invalid in this env (expected per review request). Order IS validated with token + 48h expires_at; verified by re-GET."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "ProtectedImage.jsx: The watermark layer is conditionally rendered on `loaded && watermark`, where `loaded` is toggled by <img onLoad>. If the <img> errors out (e.g. broken URL, naturalWidth=0) the onLoad event never fires, so no .watermark-layer is rendered. In this run we briefly saw a stale TEST_photo with a broken /api/files/nophotopix/uploads/... URL on the home page that had hasWm=false. After deleting the orphan record the page was clean (8/8 watermarked). Suggestion (non-blocking): also set `loaded=true` on onError so the watermark always covers the alt-text fallback. Also consider using a useEffect that checks img.complete + naturalWidth > 0 on mount to handle cache-hit cases where onLoad fires before the React listener is attached — although this iteration's repeated reloads did not actually exhibit the cache-hit problem.",
+    "server.py L43: DOWNLOAD_TOKEN_TTL_HOURS = 48 and validate_order uses timedelta(hours=DOWNLOAD_TOKEN_TTL_HOURS) at L726. Confirmed runtime delta = 47h59m59s in test_validate_sets_48h_ttl.",
+    "Download.jsx grid correctly passes watermark={false} to ProtectedImage so paid users see clean HD previews. /success uses the default watermark=true on previews. Good separation.",
+    "Right-click is correctly blocked at three layers: the wrapper <div onContextMenu>, the <img onContextMenu>, and via draggable={false} + onDragStart. Verified via dispatchEvent('contextmenu', cancelable:true) reporting defaultPrevented=true.",
+    "No albums currently exist in this env (GET /api/albums returned []) so /album/{id} and AlbumCard.jsx couldn't be exercised against live data. Static code review of AlbumView.jsx + AlbumCard.jsx + PhotoTile.jsx confirms they wrap their <img> in ProtectedImage with the same watermark behavior."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_api.py — added TestDownloadFlow.test_validate_sets_48h_ttl (asserts (expires_at - validated_at) is within 47h59m..48h01m).",
+    "Deleted one orphan uploaded photo (id ee615f1a-8c57-4cf1-99fe-77fdeed52eab, TEST_photo) via DELETE /api/photos that was lingering from a prior aborted test and had a broken /api/files/nophotopix/... URL."
+  ],
+  "success_rate": {"backend": "100% (25/25 pytest)", "frontend": "100% (home tiles, lightbox, success, download all verified)"},
+  "test_credentials": "Admin: X-Admin-Token=Noclan97140$ (trailing $ is part of the password). Source: /app/memory/test_credentials.md and /app/backend/.env ADMIN_PASSWORD.",
+  "seed_data_creation": "Created+deleted one test order to drive /success and /download Playwright verification. Cleaned up the stale TEST_photo orphan from a prior iteration. No leftover data.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Watermark gating: ProtectedImage only renders .watermark-layer when img.onLoad has fired (loaded=true). If you see a tile without watermark, first check img.naturalWidth — broken images won't get a watermark. To test watermark presence, prefer Unsplash seeded photos (their URLs always load). The /download/{token} grid intentionally has NO watermark (watermark={false}); do not assert otherwise. 48h TTL: validate_order uses DOWNLOAD_TOKEN_TTL_HOURS=48 (server.py L43). When SendGrid key invalid, /api/admin/orders/{id}/validate returns 502 with detail 'Commande validée mais email NON envoyé' but the order IS completed and download_token + download_expires_at are written — always re-GET /api/orders/{id} to read the final state. Test selectors used: [data-testid^='photo-tile-'], .protected-img > .watermark-layer (sibling of img), success-download-cta, download-photos-grid, download-photo-{id}.",
+  "rca of the issue": "No new functional bugs introduced by this iteration's changes. The only frontend hiccup observed (one tile missing its watermark layer on the home page) was caused by stale DB data — a previously orphaned uploaded photo whose URL 404s — not by the new watermark code. Root cause of that single observation: ProtectedImage relies on img.onLoad to toggle the `loaded` state that gates rendering of .watermark-layer; for a 404 image, onLoad never fires, so the layer never appears. This is acceptable visually because the broken image area is empty anyway. Suggested non-blocking improvement: also set loaded=true on onError so the watermark covers the alt-text fallback (no action item created since it's outside the iteration scope)."
+}

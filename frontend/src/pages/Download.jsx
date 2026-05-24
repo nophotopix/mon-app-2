@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { Header } from "../components/Header";
-import { fetchDownload, downloadFileUrl, resolveImageUrl } from "../lib/api";
+import { fetchDownload, downloadFileUrl } from "../lib/api";
+import { ProtectedImage } from "../components/ProtectedImage";
 import {
   DownloadSimple,
   CheckCircle,
@@ -78,7 +79,7 @@ export default function Download() {
           </h1>
           <p className="text-white/60 text-base mt-6 leading-relaxed">
             {isExpired
-              ? "Les liens de téléchargement sont valables 7 jours. Contactez-nous sur Instagram pour récupérer vos photos."
+              ? "Les liens de téléchargement sont valables 48 heures. Contactez-nous sur Instagram pour récupérer vos photos."
               : isNotFound
               ? "Ce lien n'existe pas ou n'a pas encore été activé par l'administrateur."
               : String(error)}
@@ -216,10 +217,12 @@ export default function Download() {
               href={downloadFileUrl(token, p.id)}
               className="group relative aspect-square bg-[#0a0a0a] overflow-hidden rounded-sm block"
             >
-              <img
-                src={resolveImageUrl(p.url)}
+              <ProtectedImage
+                src={downloadFileUrl(token, p.id)}
                 alt={p.title || ""}
+                wrapperClassName="w-full h-full"
                 className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                watermark={false}
               />
               <div className="absolute inset-0 flex items-end justify-center p-3 bg-gradient-to-t from-black/90 via-black/30 to-black/0 opacity-0 group-hover:opacity-100 transition-opacity">
                 <span className="inline-flex items-center gap-2 bg-white text-black px-4 py-2 rounded-full text-sm font-medium">
@@ -235,7 +238,8 @@ export default function Download() {
           <p className="text-eyebrow text-[#E8B23A] mb-2">À noter</p>
           <p className="text-white/60 text-sm leading-relaxed">
             Ce lien est <strong className="text-white">strictement personnel</strong>{" "}
-            et reste valable pendant 7 jours. Pensez à enregistrer vos photos sur
+            et reste valable pendant <strong className="text-white">48 heures</strong>.
+            Téléchargements illimités pendant cette période — pensez à enregistrer vos photos sur
             votre appareil dès maintenant. Pour toute question, contactez{" "}
             <a
               href="https://www.instagram.com/no_photo_pix/"

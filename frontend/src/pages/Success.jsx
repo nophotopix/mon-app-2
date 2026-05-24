@@ -3,6 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import { Header } from "../components/Header";
 import { fetchOrder, resolveImageUrl, downloadFileUrl } from "../lib/api";
 import { PaymentMethodIcon } from "../components/PaymentIcons";
+import { ProtectedImage } from "../components/ProtectedImage";
 import { toast } from "sonner";
 import {
   CheckCircle,
@@ -199,7 +200,7 @@ export default function Success() {
               <p className="text-eyebrow text-emerald-400 mb-2">Téléchargement HD disponible</p>
               <p className="text-white text-base leading-relaxed">
                 Accédez à vos {Array.isArray(order.photo_ids) ? order.photo_ids.length : 0} photo(s) via votre lien sécurisé.
-                Valable 7 jours.
+                Valable 48 heures.
               </p>
             </div>
             <Link
@@ -233,9 +234,10 @@ export default function Success() {
                 key={p.id}
                 className="relative aspect-square bg-[#0a0a0a] overflow-hidden rounded-sm group"
               >
-                <img
+                <ProtectedImage
                   src={resolveImageUrl(p.url)}
                   alt={p.title || ""}
+                  wrapperClassName="w-full h-full"
                   className={`w-full h-full object-cover transition-all ${
                     isCompleted ? "" : "blur-sm grayscale brightness-50"
                   }`}
