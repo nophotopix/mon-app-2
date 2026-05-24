@@ -224,8 +224,10 @@ class Order(BaseModel):
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     validated_at: Optional[str] = None
     email_sent: bool = False
+    email_error: Optional[str] = None
     download_token: Optional[str] = None
     download_expires_at: Optional[str] = None
+    download_url: Optional[str] = None
     stripe_session_id: Optional[str] = None
     album_id: Optional[str] = None
 
@@ -706,7 +708,10 @@ async def get_order(order_id: str):
 async def list_orders(x_admin_token: Optional[str] = Header(None)):
     _check_admin(x_admin_token)
     orders = await db.orders.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    base = (PUBLIC_BASE_URL or "").rstrip("/")
     for o in orders:
+        if o.get("download_token"):
+            o["download_url"] = f"{base}/download/{o['download_token']}" if base else f"/download/{o['download_token']}"
         await _hydrate_order(o)
     return orders
 
@@ -718,21 +723,31 @@ async def validate_order(
     """Manual admin validation for PayPal/Wero/Revolut orders.
     On validation:
       - generates a secure download token (valid 48 hours)
-      - sends an automated SendGrid email with the download link
-    Idempotent: re-validating a completed order returns it as-is without re-sending email.
+      - generates the public download_url and ALWAYS returns it (even if email fails)
+      - attempts to send the automated SendGrid email with the link
+    Idempotent: re-validating a completed order returns the existing token + URL.
+    NEVER returns an HTTP error when only the email step fails — the admin UI uses
+    `email_sent` + `email_error` to display a copy-fallback for manual sending.
     """
     _check_admin(x_admin_token)
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(status_code=404, detail="Commande introuvable")
+
+    base = (PUBLIC_BASE_URL or "").rstrip("/")
+
     if order["status"] == "completed":
+        # Already validated — just refresh the helper fields and return
+        if order.get("download_token"):
+            order["download_url"] = f"{base}/download/{order['download_token']}" if base else f"/download/{order['download_token']}"
         await _hydrate_order(order)
         return order
 
-    # Generate secure download token + 7-day expiration
+    # Generate secure download token + 48h expiration
     token = _gen_download_token()
     expires_at = (datetime.now(timezone.utc) + timedelta(hours=DOWNLOAD_TOKEN_TTL_HOURS)).isoformat()
     now = datetime.now(timezone.utc).isoformat()
+    download_url = f"{base}/download/{token}" if base else f"/download/{token}"
 
     await db.orders.update_one(
         {"id": order_id},
@@ -743,11 +758,13 @@ async def validate_order(
             "download_expires_at": expires_at,
         }},
     )
-    # Refresh order in memory
     order["status"] = "completed"
     order["validated_at"] = now
     order["download_token"] = token
     order["download_expires_at"] = expires_at
+    order["download_url"] = download_url
+
+    logger.info(f"[ORDER VALIDATED] id={order_id} email={order['email']} token={token[:12]}... url={download_url}")
 
     # Resolve album name (for nicer email copy)
     album_name = None
@@ -756,15 +773,24 @@ async def validate_order(
         if album:
             album_name = album.get("name")
 
-    # Send the automated download email (secure link)
+    # Send the automated download email (best-effort)
     sent, send_error = _send_download_email(order, album_name=album_name)
-    await db.orders.update_one({"id": order_id}, {"$set": {"email_sent": sent}})
+
+    # Persist email outcome
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {"email_sent": sent, "email_error": (send_error or None)}},
+    )
     order["email_sent"] = sent
+    order["email_error"] = send_error
+
+    if sent:
+        logger.info(f"[EMAIL OK] order={order_id} to={order['email']}")
+    else:
+        logger.error(f"[EMAIL FAILED] order={order_id} to={order['email']} error={send_error}")
 
     await _hydrate_order(order)
-    if not sent and send_error:
-        # Surface the SendGrid error to the admin (non-fatal — order is still completed)
-        raise HTTPException(status_code=502, detail=f"Commande validée mais email NON envoyé : {send_error}")
+    # Always 200. Admin UI displays the email_error + copy-to-clipboard download link.
     return order
 
 
@@ -847,15 +873,43 @@ def _send_download_email(order: dict, album_name: Optional[str] = None) -> tuple
             )
             sg = SendGridAPIClient(SENDGRID_API_KEY)
             resp = sg.send(message)
-            logger.info(f"Stripe email sent to {order['email']}, status={resp.status_code}")
+            logger.info(f"[SENDGRID OK] to={order['email']} from={SENDER_EMAIL} status={resp.status_code} download={download_url}")
             return True, None
         except Exception as exc:
-            err = str(exc)
-            logger.error(f"SendGrid (Stripe email) failed: {err}")
-            return False, err
+            err_text = str(exc)
+            body = getattr(exc, "body", None)
+            if body:
+                try:
+                    err_text = f"{err_text} | body={body.decode() if isinstance(body, bytes) else body}"
+                except Exception:
+                    pass
+            logger.error(
+                f"[SENDGRID FAILED] to={order['email']} from={SENDER_EMAIL} error={err_text}"
+            )
+            # Friendly French message for the admin UI
+            friendly = err_text
+            low = err_text.lower()
+            if "401" in low or "unauthorized" in low or "authorization grant" in low:
+                friendly = (
+                    "Clé SendGrid invalide ou révoquée. "
+                    "Régénère une clé sur SendGrid → Settings → API Keys et "
+                    "mets-la à jour dans la variable d'environnement SENDGRID_API_KEY (Render)."
+                )
+            elif "403" in low or "forbidden" in low or "from address does not match" in low or "does not match a verified" in low:
+                friendly = (
+                    f"L'adresse expéditeur ({SENDER_EMAIL}) n'est pas vérifiée dans SendGrid. "
+                    "Va sur SendGrid → Settings → Sender Authentication → Single Sender Verification "
+                    "pour vérifier cette adresse (ou utilise une adresse depuis un domaine que tu as vérifié)."
+                )
+            elif "does not contain a valid address" in low or "bad request" in low:
+                friendly = "Adresse email destinataire invalide."
+            return False, friendly
     else:
-        logger.info(f"[MOCKED EMAIL] download_url={download_url} to {order['email']}")
-        return True, None
+        logger.warning(
+            f"[EMAIL NOT SENT] No SENDGRID_API_KEY configured — download URL: {download_url} (recipient: {order['email']})"
+        )
+        # No key configured -> treat as 'not sent' so admin sees the fallback UI
+        return False, "Aucune clé SendGrid configurée (SENDGRID_API_KEY manquante). Copie le lien et envoie-le manuellement au client."
 
 
 def _get_stripe_checkout(host_url: str):

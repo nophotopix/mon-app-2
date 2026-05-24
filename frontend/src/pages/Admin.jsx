@@ -35,6 +35,9 @@ import {
   ArrowLeft,
   CalendarBlank,
   Star,
+  Copy,
+  WarningCircle,
+  LinkSimple,
 } from "@phosphor-icons/react";
 
 const TOKEN_KEY = "nophotopix_admin_token";
@@ -201,22 +204,26 @@ export default function Admin() {
   };
 
   const handleValidate = async (orderId) => {
-    if (!confirm("Valider cette commande et envoyer l'email au client ?")) return;
+    if (!confirm("Valider cette commande et générer le lien HD ?")) return;
     setValidatingId(orderId);
     try {
-      await validateOrder(orderId, token);
-      toast.success("Commande validée · email envoyé");
+      const updated = await validateOrder(orderId, token);
+      if (updated?.email_sent) {
+        toast.success("Commande validée · email envoyé au client", { duration: 6000 });
+      } else if (updated?.email_error) {
+        toast.warning(
+          `Lien HD généré, mais email NON envoyé. Copie-le manuellement (bouton ci-dessous). Détail : ${updated.email_error}`,
+          { duration: 14000 }
+        );
+      } else {
+        toast.success("Commande validée · lien HD disponible");
+      }
       await loadOrders();
     } catch (err) {
       const status = err?.response?.status;
-      const detail = err?.response?.data?.detail;
       if (status === 401) {
         toast.error("Session expirée");
         handleLogout();
-      } else if (status === 502 && detail) {
-        // Order was validated but email failed — show specific error
-        toast.error(detail, { duration: 12000 });
-        await loadOrders();
       } else {
         toast.error("Erreur de validation");
       }
@@ -790,6 +797,110 @@ const PhotosTab = ({ photos, uploading, fileInputRef, handleUpload, handleDelete
   </>
 );
 
+const DownloadLinkBand = ({ downloadUrl, emailSent, emailError, expiresAt }) => {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(downloadUrl);
+      setCopied(true);
+      toast.success("Lien HD copié dans le presse-papier");
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      // Fallback for old browsers / iOS Safari without clipboard permission
+      const el = document.createElement("textarea");
+      el.value = downloadUrl;
+      el.style.position = "fixed";
+      el.style.opacity = "0";
+      document.body.appendChild(el);
+      el.select();
+      try { document.execCommand("copy"); } catch { /* ignore */ }
+      document.body.removeChild(el);
+      setCopied(true);
+      toast.success("Lien HD copié");
+      setTimeout(() => setCopied(false), 2500);
+    }
+  };
+
+  const expiresDate = expiresAt ? new Date(expiresAt) : null;
+  const expiresStr = expiresDate
+    ? expiresDate.toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" })
+    : null;
+
+  return (
+    <div
+      data-testid="admin-download-link-band"
+      className={`mt-4 pt-4 border-t ${
+        emailSent ? "border-emerald-400/20" : "border-amber-400/30"
+      }`}
+    >
+      {!emailSent && (
+        <div
+          data-testid="admin-email-error"
+          className="mb-3 px-4 py-3 bg-amber-500/10 border border-amber-500/30 rounded-sm flex items-start gap-3"
+        >
+          <WarningCircle size={18} weight="fill" className="text-amber-400 shrink-0 mt-0.5" />
+          <div className="text-sm text-amber-100/90 leading-relaxed">
+            <p className="font-medium text-amber-200">Email NON envoyé.</p>
+            <p className="mt-1 text-xs text-amber-100/70">
+              {emailError || "Aucune raison fournie."} Copie le lien HD ci-dessous et envoie-le manuellement au client via WhatsApp, SMS, Instagram, etc.
+            </p>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="flex-1 min-w-0">
+          <p className="text-eyebrow text-[#E8B23A] mb-1">Lien HD sécurisé · 48h</p>
+          <div className="flex items-center gap-2">
+            <LinkSimple size={14} className="text-white/40 shrink-0" />
+            <code
+              data-testid="admin-download-url"
+              className="text-white/70 text-xs font-mono truncate"
+              title={downloadUrl}
+            >
+              {downloadUrl}
+            </code>
+          </div>
+          {expiresStr && (
+            <p className="text-white/40 text-[11px] mt-1">Expire le {expiresStr}</p>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            data-testid="admin-copy-link-btn"
+            onClick={handleCopy}
+            className={`inline-flex items-center justify-center gap-2 px-4 py-2 rounded-sm text-sm font-medium transition ${
+              copied
+                ? "bg-emerald-500 text-black"
+                : "bg-white text-black hover:brightness-95"
+            }`}
+          >
+            {copied ? (
+              <>
+                <CheckCircle size={14} weight="bold" /> Copié
+              </>
+            ) : (
+              <>
+                <Copy size={14} weight="bold" /> Copier le lien
+              </>
+            )}
+          </button>
+          <a
+            data-testid="admin-open-link-btn"
+            href={downloadUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-sm text-sm bg-white/5 text-white hover:bg-white/10 transition"
+            title="Ouvrir le lien (aperçu)"
+          >
+            Aperçu
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const OrdersTab = ({ orders, validatingId, onValidate, onDelete, onRefresh }) => (
   <div>
     <div className="flex justify-between items-end mb-6">
@@ -829,10 +940,13 @@ const OrdersTab = ({ orders, validatingId, onValidate, onDelete, onRefresh }) =>
                       <span className="inline-flex items-center gap-1 text-amber-400 text-xs">
                         <Clock size={12} /> En attente
                       </span>
-                    ) : (
+                    ) : o.email_sent ? (
                       <span className="inline-flex items-center gap-1 text-emerald-400 text-xs">
-                        <CheckCircle size={12} weight="fill" />
-                        Validée {o.email_sent && "· email envoyé"}
+                        <CheckCircle size={12} weight="fill" /> Validée · email envoyé
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-amber-400 text-xs">
+                        <CheckCircle size={12} weight="fill" /> Validée · email à envoyer manuellement
                       </span>
                     )}
                   </div>
@@ -904,6 +1018,18 @@ const OrdersTab = ({ orders, validatingId, onValidate, onDelete, onRefresh }) =>
                   </div>
                 )}
               </div>
+
+              {/* Download link block — visible once validated, regardless of email_sent status.
+                  Lets the admin copy/share the secure link manually if SendGrid failed. */}
+              {!pending && o.download_url && (
+                <DownloadLinkBand
+                  order={o}
+                  downloadUrl={o.download_url}
+                  emailSent={o.email_sent}
+                  emailError={o.email_error}
+                  expiresAt={o.download_expires_at}
+                />
+              )}
             </div>
           );
         })}

@@ -526,3 +526,108 @@ class TestDownloadFlow:
         assert d["validated_at"] == original_validated
         # cleanup
         requests.delete(f"{API}/admin/orders/{order['id']}", headers=self.HDRS, timeout=10)
+
+
+
+# ========== ITER 7: Resilient validate (SendGrid down) + admin copy-link ==========
+class TestResilientValidate:
+    HDRS = {"X-Admin-Token": ADMIN_PASSWORD}
+    EXPECTED_BASE = "https://image-select-pay.emergent.host"
+
+    def _fresh_order(self):
+        ph = requests.get(f"{API}/photos", timeout=10).json()[0]
+        r = requests.post(f"{API}/orders", json={
+            "email": "qa-test@npp.io",
+            "photo_ids": [ph["id"]],
+            "total": 3,
+            "payment_method": "paypal",
+        }, timeout=10)
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    def test_validate_returns_200_even_when_sendgrid_fails(self):
+        order = self._fresh_order()
+        try:
+            r = requests.post(f"{API}/admin/orders/{order['id']}/validate",
+                              headers=self.HDRS, timeout=20)
+            # CRITICAL: must NOT be 502 anymore
+            assert r.status_code == 200, f"Expected 200, got {r.status_code}: {r.text}"
+            d = r.json()
+            assert d["status"] == "completed"
+            assert d.get("validated_at")
+            assert d.get("download_token")
+            assert d.get("download_expires_at")
+            # download_url absolute + PUBLIC_BASE_URL prefix
+            assert d.get("download_url", "").startswith(self.EXPECTED_BASE + "/download/"), d.get("download_url")
+            assert d["download_url"] == f"{self.EXPECTED_BASE}/download/{d['download_token']}"
+            # SendGrid expected to fail with revoked key
+            assert d.get("email_sent") is False
+            assert d.get("email_error")
+            assert "SendGrid" in d["email_error"] or "sendgrid" in d["email_error"].lower() or "révoqu" in d["email_error"].lower()
+            # Friendly French message expected
+            assert "révoqu" in d["email_error"] or "invalide" in d["email_error"].lower()
+        finally:
+            requests.delete(f"{API}/admin/orders/{order['id']}", headers=self.HDRS, timeout=10)
+
+    def test_list_orders_includes_download_url_for_completed(self):
+        order = self._fresh_order()
+        try:
+            v = requests.post(f"{API}/admin/orders/{order['id']}/validate",
+                              headers=self.HDRS, timeout=20)
+            assert v.status_code == 200
+            token = v.json()["download_token"]
+            r = requests.get(f"{API}/admin/orders", headers=self.HDRS, timeout=15)
+            assert r.status_code == 200
+            found = next((o for o in r.json() if o["id"] == order["id"]), None)
+            assert found is not None
+            assert found["status"] == "completed"
+            assert found.get("download_url") == f"{self.EXPECTED_BASE}/download/{token}"
+        finally:
+            requests.delete(f"{API}/admin/orders/{order['id']}", headers=self.HDRS, timeout=10)
+
+    def test_validate_idempotent_same_token_no_resend(self):
+        order = self._fresh_order()
+        try:
+            v1 = requests.post(f"{API}/admin/orders/{order['id']}/validate",
+                               headers=self.HDRS, timeout=20).json()
+            v2 = requests.post(f"{API}/admin/orders/{order['id']}/validate",
+                               headers=self.HDRS, timeout=20).json()
+            assert v1["download_token"] == v2["download_token"]
+            assert v1["download_url"] == v2["download_url"]
+            assert v1["validated_at"] == v2["validated_at"]
+            assert v1["download_expires_at"] == v2["download_expires_at"]
+            # email_sent unchanged (still False from first call)
+            assert v2["email_sent"] == v1["email_sent"]
+        finally:
+            requests.delete(f"{API}/admin/orders/{order['id']}", headers=self.HDRS, timeout=10)
+
+    def test_download_endpoint_works_with_token(self):
+        order = self._fresh_order()
+        try:
+            v = requests.post(f"{API}/admin/orders/{order['id']}/validate",
+                              headers=self.HDRS, timeout=20).json()
+            token = v["download_token"]
+            r = requests.get(f"{API}/download/{token}", timeout=10)
+            assert r.status_code == 200, r.text
+            d = r.json()
+            assert "photos" in d and isinstance(d["photos"], list) and len(d["photos"]) >= 1
+            # download a file
+            pid = d["photos"][0]["id"]
+            f = requests.get(f"{API}/download/{token}/file/{pid}", timeout=15)
+            assert f.status_code == 200
+            assert "content-disposition" in {k.lower(): v for k, v in f.headers.items()}
+        finally:
+            requests.delete(f"{API}/admin/orders/{order['id']}", headers=self.HDRS, timeout=10)
+
+    def test_validate_expires_in_about_48h(self):
+        from datetime import datetime
+        order = self._fresh_order()
+        try:
+            v = requests.post(f"{API}/admin/orders/{order['id']}/validate",
+                              headers=self.HDRS, timeout=20).json()
+            va = datetime.fromisoformat(v["validated_at"].replace("Z", "+00:00"))
+            ex = datetime.fromisoformat(v["download_expires_at"].replace("Z", "+00:00"))
+            delta_h = (ex - va).total_seconds() / 3600
+            assert 47.5 <= delta_h <= 48.5, f"Expected ~48h, got {delta_h}"
+        finally:
+            requests.delete(f"{API}/admin/orders/{order['id']}", headers=self.HDRS, timeout=10)
