@@ -37,12 +37,29 @@ export const ProtectedImage = ({
   const [status, setStatus] = useState("loading"); // loading | loaded | error
   const [currentSrc, setCurrentSrc] = useState(src || "");
   const retriedRef = useRef(false);
+  const imgRef = useRef(null);
 
-  // Reset when src changes
+  // Reset when src changes — also handles the mobile/cache-hit race where the
+  // <img> may already be decoded by the time React mounts/re-renders, so the
+  // onLoad event won't fire again. We check imgRef.current.complete after a tick.
   useEffect(() => {
     retriedRef.current = false;
-    setStatus(src ? "loading" : "error");
-    setCurrentSrc(src || "");
+    if (!src) {
+      setStatus("error");
+      setCurrentSrc("");
+      return;
+    }
+    setStatus("loading");
+    setCurrentSrc(src);
+    // After paint, if the browser already has the image (cache hit / SSR prefetch),
+    // mark it loaded so the skeleton/opacity-0 doesn't linger.
+    const tick = requestAnimationFrame(() => {
+      const el = imgRef.current;
+      if (el && el.complete && el.naturalWidth > 0) {
+        setStatus("loaded");
+      }
+    });
+    return () => cancelAnimationFrame(tick);
   }, [src]);
 
   const handleContext = (e) => {
@@ -93,6 +110,7 @@ export const ProtectedImage = ({
       {/* The actual image */}
       {status !== "error" && currentSrc && (
         <img
+          ref={imgRef}
           src={currentSrc}
           alt={alt}
           loading="lazy"

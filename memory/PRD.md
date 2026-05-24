@@ -46,6 +46,15 @@ Modern photo gallery web app for a photographer to sell photos with manual payme
 - All copy ("7 jours" → "48 heures") updated in backend email + frontend (Success + Download)
 - **25/25 backend pytest** + frontend Playwright validated (iteration_5)
 
+### Phase 7 (2026-05-24) — Definitive Photo URL Fix (broken previews after upload)
+- **Root cause**: backend's `_hydrate_photo` prefixed photo URLs with `PUBLIC_BASE_URL` (= frontend Netlify host), so `/api/files/...` resolved to a non-existent endpoint and 404'd, especially on mobile.
+- **Fix**: backend now returns RELATIVE URLs (`/api/files/...` or `/uploads/...` or external https). Frontend's `resolveImageUrl` prefixes `REACT_APP_BACKEND_URL` for relative paths.
+- **Defensive migration**: `_migrate_photo_urls` runs on startup and strips any legacy frontend-host prefix from existing photo docs (idempotent, scoped to /api/files/ + /uploads/ only).
+- **Frontend resolveImageUrl**: extended to handle null/undefined/whitespace/protocol-relative/bare-token, strip legacy Netlify prefixes defensively.
+- **ProtectedImage** upgraded with retry-once + cache-buster on error, premium "Image indisponible" placeholder (never browser broken icon), skeleton with gold shimmer, fade-in on decode, **cache-hit race mitigation** (rAF check of `img.complete && naturalWidth>0` after src change).
+- **Admin previews** use `watermark={false}` so admin sees clean originals.
+- **28/28 backend pytest** (incl. 3 new URL-fix tests + migration test) + frontend Playwright (desktop + mobile 375×700 + reload cache-hit) all PASS (iteration_6).
+
 ## Required env vars (backend/.env)
 ```
 ADMIN_PASSWORD=Noclan97140$
