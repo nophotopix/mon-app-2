@@ -710,7 +710,7 @@ async def list_orders(x_admin_token: Optional[str] = Header(None)):
     orders = await db.orders.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
     base = (PUBLIC_BASE_URL or "").rstrip("/")
     for o in orders:
-        if o.get("download_token"):
+        if o.get("status") == "completed" and o.get("download_token"):
             o["download_url"] = f"{base}/download/{o['download_token']}" if base else f"/download/{o['download_token']}"
         await _hydrate_order(o)
     return orders
@@ -1025,9 +1025,13 @@ async def _finalize_paid_order(session_id: str) -> Optional[dict]:
         album = await db.albums.find_one({"id": order["album_id"]}, {"_id": 0, "name": 1})
         if album:
             album_name = album.get("name")
-    sent, _ = _send_download_email(order, album_name=album_name)
-    await db.orders.update_one({"id": order["id"]}, {"$set": {"email_sent": sent}})
+    sent, send_error = _send_download_email(order, album_name=album_name)
+    await db.orders.update_one(
+        {"id": order["id"]},
+        {"$set": {"email_sent": sent, "email_error": (send_error or None)}},
+    )
     order["email_sent"] = sent
+    order["email_error"] = send_error
     return order
 
 

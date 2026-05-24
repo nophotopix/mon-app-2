@@ -55,6 +55,22 @@ Modern photo gallery web app for a photographer to sell photos with manual payme
 - **Admin previews** use `watermark={false}` so admin sees clean originals.
 - **28/28 backend pytest** (incl. 3 new URL-fix tests + migration test) + frontend Playwright (desktop + mobile 375×700 + reload cache-hit) all PASS (iteration_6).
 
+### Phase 8 (2026-05-24) — Resilient HD Download Workflow + Manual Email Fallback
+- **Problem**: customer paid + admin clicked "Valider", but no email arrived. SendGrid key revoked (401) → previous code raised HTTP 502 → admin saw an error toast and had no usable link.
+- **Backend fix**:
+  - `Order` model now includes `email_error` (friendly French SendGrid error) + `download_url` (absolute, prefixed by `PUBLIC_BASE_URL`).
+  - `POST /api/admin/orders/{id}/validate` **always returns 200**. Persists `email_sent` and `email_error` in DB. Idempotent re-validate doesn't re-send.
+  - `GET /api/admin/orders` re-injects `download_url` for every completed order → admin can re-copy after page reload.
+  - `_send_download_email` now produces friendly French messages: "Clé SendGrid invalide ou révoquée", "Adresse expéditeur non vérifiée", etc.
+  - Stripe `_finalize_paid_order` also persists `email_error` (consistency).
+  - Updated `PUBLIC_BASE_URL` to `https://image-select-pay.emergent.host`.
+- **Frontend fix (Admin)**:
+  - `DownloadLinkBand` component: amber warning banner when email_sent=false with the precise SendGrid error, the absolute download link displayed in `<code>`, a Copy-to-clipboard button (with iOS Safari `execCommand` fallback), an "Aperçu" link to open the page directly.
+  - Status pill differentiates "Validée · email envoyé" (green) vs "Validée · email à envoyer manuellement" (amber).
+  - `handleValidate` uses `toast.success` when email sent, `toast.warning` (long-duration) with the SendGrid error when not — never `toast.error` since the order IS validated.
+- **Logs**: `[ORDER VALIDATED] id=... token=... url=...`, `[EMAIL OK]` / `[EMAIL FAILED] error=...`, `[SENDGRID OK]` / `[SENDGRID FAILED]` — all clear and actionable.
+- **5/5 new backend resilient-validate pytest** + frontend Playwright (admin login, validate, band visible, copy button works, toast fires, persistence after reload, `/download/{token}` still renders) all PASS (iteration_7).
+
 ## Required env vars (backend/.env)
 ```
 ADMIN_PASSWORD=Noclan97140$
