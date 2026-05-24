@@ -17,6 +17,13 @@ def _png_bytes():
     return buf
 
 
+def _jpeg_bytes():
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 64), (200, 100, 50)).save(buf, format="JPEG", quality=80)
+    buf.seek(0)
+    return buf
+
+
 class TestConfig:
     def test_config(self):
         r = requests.get(f"{API}/config", timeout=10)
@@ -54,6 +61,120 @@ class TestAdminLogin:
     def test_login_wrong(self):
         r = requests.post(f"{API}/admin/login", json={"password": "bad"}, timeout=10)
         assert r.status_code == 401
+
+
+# ============= PHOTO URL FIX (iteration 6) =============
+class TestPhotoUrlFix:
+    """Verify backend returns relative URLs for uploaded photos
+    and Unsplash external URLs verbatim. Also tests that uploaded URL is
+    fetchable via {BASE_URL}/api/files/... returning 200 image/*."""
+
+    HDRS = {"X-Admin-Token": ADMIN_PASSWORD}
+
+    def test_unsplash_urls_returned_verbatim(self):
+        """At least one seeded photo should have an external https unsplash URL kept as-is."""
+        r = requests.get(f"{API}/photos", timeout=10)
+        assert r.status_code == 200
+        data = r.json()
+        unsplash = [p for p in data if p["source"] == "unsplash"]
+        assert len(unsplash) >= 1, "Expected at least 1 unsplash seeded photo"
+        for p in unsplash:
+            assert p["url"].startswith("https://images.unsplash.com/"), (
+                f"Unsplash URL must be verbatim, got: {p['url']}"
+            )
+            # MUST NOT be prefixed with the legacy Netlify host
+            assert "venerable-beignet" not in p["url"]
+
+    def test_uploaded_jpeg_returns_relative_url(self):
+        """POST a JPEG and assert response.url is RELATIVE (starts with /api/files/nophotopix/uploads/
+        or /uploads/) — NOT an absolute Netlify URL."""
+        files = {"file": ("TEST_relurl.jpg", _jpeg_bytes(), "image/jpeg")}
+        r = requests.post(f"{API}/photos", files=files, headers=self.HDRS,
+                          data={"title": "TEST_relurl"}, timeout=15)
+        assert r.status_code == 200, r.text
+        photo = r.json()
+        pid = photo["id"]
+        try:
+            url = photo["url"]
+            # Must be relative — not absolute http(s)
+            assert not url.startswith("http://"), f"URL is absolute: {url}"
+            assert not url.startswith("https://"), f"URL is absolute: {url}"
+            # And specifically not pointing at the Netlify legacy host
+            assert "venerable-beignet" not in url, f"URL still has legacy Netlify prefix: {url}"
+            # Should start with /api/files/nophotopix/uploads/ OR /uploads/ (fallback)
+            assert url.startswith("/api/files/nophotopix/uploads/") or url.startswith("/uploads/"), (
+                f"Expected relative URL starting with /api/files/nophotopix/uploads/ or /uploads/, got: {url}"
+            )
+
+            # List should show same relative URL
+            lst = requests.get(f"{API}/photos", timeout=10).json()
+            match = next((p for p in lst if p["id"] == pid), None)
+            assert match is not None
+            assert match["url"] == url, (
+                f"Listed URL ({match['url']}) differs from upload URL ({url})"
+            )
+
+            # GET {BASE_URL}{url} must return 200 image/jpeg (or image/*)
+            full = f"{BASE_URL}{url}"
+            img = requests.get(full, timeout=15)
+            assert img.status_code == 200, f"GET {full} -> {img.status_code}"
+            ctype = img.headers.get("Content-Type", "")
+            assert ctype.startswith("image/"), f"Expected image/*, got {ctype}"
+            assert len(img.content) > 100
+        finally:
+            requests.delete(f"{API}/photos/{pid}", headers=self.HDRS, timeout=10)
+
+    def test_startup_migration_strips_legacy_netlify_prefix(self):
+        """Insert a photo doc with legacy Netlify-prefixed URL, restart backend,
+        confirm url is rewritten to relative form. Cleanup afterwards."""
+        from pymongo import MongoClient
+        import datetime as dt
+        import subprocess
+        import time
+        import uuid
+
+        mongo_url = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
+        db_name = os.environ.get("DB_NAME", "test_database")
+        client = MongoClient(mongo_url)
+        db = client[db_name]
+        try:
+            test_id = f"TEST_migrate_{uuid.uuid4().hex[:8]}"
+            legacy_url = "https://venerable-beignet-9414de.netlify.app/api/files/legacy/test.jpg"
+            doc = {
+                "id": test_id,
+                "url": legacy_url,
+                "source": "upload",
+                "title": "TEST_migrate",
+                "created_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            }
+            db.photos.insert_one(doc)
+
+            # Restart backend to trigger migration in startup_event
+            subprocess.run(["sudo", "supervisorctl", "restart", "backend"],
+                           check=True, capture_output=True, timeout=30)
+            # Wait for backend to come back up
+            deadline = time.time() + 30
+            while time.time() < deadline:
+                try:
+                    h = requests.get(f"{API}/config", timeout=2)
+                    if h.status_code == 200:
+                        break
+                except Exception:
+                    pass
+                time.sleep(0.5)
+            else:
+                pytest.fail("Backend did not come back after restart")
+
+            # Read back doc — URL should be relative now
+            updated = db.photos.find_one({"id": test_id})
+            assert updated is not None
+            assert updated["url"] == "/api/files/legacy/test.jpg", (
+                f"Expected migrated URL '/api/files/legacy/test.jpg', got: {updated['url']}"
+            )
+            assert "venerable-beignet" not in updated["url"]
+        finally:
+            db.photos.delete_one({"id": test_id})
+            client.close()
 
 
 class TestUploadDelete:
@@ -95,7 +216,6 @@ class TestUploadDelete:
         # 404 after delete
 
 
-# ============= ORDERS =============
 class TestOrders:
     @classmethod
     def _photo_ids(cls, n=2):

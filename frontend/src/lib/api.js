@@ -4,10 +4,50 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 export const API = `${BACKEND_URL}/api`;
 export const ASSET_BASE = BACKEND_URL;
 
+/**
+ * Resolve any photo URL coming from the backend into a fully-qualified URL the
+ * browser can fetch. The backend stores URLs in one of three shapes:
+ *   1. External absolute URL  e.g. https://images.unsplash.com/...   -> kept as-is
+ *   2. Backend-relative API path  e.g. /api/files/nophotopix/uploads/abc.jpg
+ *   3. Backend-relative upload path  e.g. /uploads/abc.jpg (legacy local storage)
+ * Cases 2 and 3 are prefixed with REACT_APP_BACKEND_URL so they always resolve to
+ * the Render backend, regardless of what PUBLIC_BASE_URL the backend was deployed
+ * with. Also defensively strips legacy frontend-host prefixes that may have leaked
+ * into older documents.
+ */
+const LEGACY_FRONTEND_PREFIXES = [
+  "https://venerable-beignet-9414de.netlify.app",
+  "http://venerable-beignet-9414de.netlify.app",
+];
+
 export const resolveImageUrl = (url) => {
-  if (!url) return "";
-  if (url.startsWith("http")) return url;
-  return `${ASSET_BASE}${url}`;
+  if (!url || typeof url !== "string") return "";
+  const trimmed = url.trim();
+  if (!trimmed) return "";
+
+  // Strip any legacy frontend host that wrongly prefixed an API/uploads path
+  for (const prefix of LEGACY_FRONTEND_PREFIXES) {
+    if (
+      trimmed.startsWith(prefix + "/api/") ||
+      trimmed.startsWith(prefix + "/uploads/")
+    ) {
+      return `${ASSET_BASE}${trimmed.slice(prefix.length)}`;
+    }
+  }
+
+  // External / fully-qualified URL — keep as-is
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return trimmed;
+  }
+
+  // Protocol-relative (//cdn...) — let the browser pick the protocol
+  if (trimmed.startsWith("//")) return trimmed;
+
+  // Backend-relative path
+  if (trimmed.startsWith("/")) return `${ASSET_BASE}${trimmed}`;
+
+  // Bare token (assume it's an API path)
+  return `${ASSET_BASE}/${trimmed}`;
 };
 
 export const api = axios.create({ baseURL: API });

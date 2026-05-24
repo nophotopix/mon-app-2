@@ -230,3 +230,34 @@ body {
         background-size: 180px 130px;
     }
 }
+
+/* Premium loading skeleton — dark base with a sweeping gold shimmer */
+.protected-skeleton {
+    background:
+        linear-gradient(
+            110deg,
+            rgba(232, 178, 58, 0) 0%,
+            rgba(232, 178, 58, 0.06) 45%,
+            rgba(232, 178, 58, 0.12) 50%,
+            rgba(232, 178, 58, 0.06) 55%,
+            rgba(232, 178, 58, 0) 100%
+        ),
+        #0a0a0a;
+    background-size: 220% 100%, auto;
+    animation: skeleton-sweep 1.6s ease-in-out infinite;
+}
+@keyframes skeleton-sweep {
+    0% {
+        background-position: 200% 0, 0 0;
+    }
+    100% {
+        background-position: -120% 0, 0 0;
+    }
+}
+
+/* Admin needs to see originals — opt-out class */
+.no-protect img {
+    -webkit-user-drag: auto;
+    user-drag: auto;
+    user-select: auto;
+}

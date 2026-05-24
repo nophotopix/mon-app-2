@@ -17,6 +17,7 @@ import {
   validateOrder,
 } from "../lib/api";
 import { PaymentMethodIcon } from "../components/PaymentIcons";
+import { ProtectedImage } from "../components/ProtectedImage";
 import { toast } from "sonner";
 import {
   UploadSimple,
@@ -670,10 +671,12 @@ const AlbumDetailTab = ({
                   data-testid={`admin-album-photo-${p.id}`}
                   className="group relative aspect-square bg-[#0a0a0a] overflow-hidden rounded-sm"
                 >
-                  <img
+                  <ProtectedImage
                     src={resolveImageUrl(p.url)}
                     alt={p.title || ""}
+                    wrapperClassName="w-full h-full"
                     className="w-full h-full object-cover"
+                    watermark={false}
                   />
                   {isCover && (
                     <span className="absolute top-2 left-2 inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.2em] px-2 py-1 rounded-sm bg-[#E8B23A] text-black font-semibold">
@@ -760,10 +763,12 @@ const PhotosTab = ({ photos, uploading, fileInputRef, handleUpload, handleDelete
               data-testid={`admin-photo-${p.id}`}
               className="group relative aspect-square bg-[#0a0a0a] overflow-hidden rounded-sm"
             >
-              <img
+              <ProtectedImage
                 src={resolveImageUrl(p.url)}
                 alt={p.title || ""}
+                wrapperClassName="w-full h-full"
                 className="w-full h-full object-cover"
+                watermark={false}
               />
               <div className="absolute inset-0 bg-black/0 group-hover:bg-black/50 transition-colors flex items-center justify-center">
                 <button
@@ -884,11 +889,13 @@ const OrdersTab = ({ orders, validatingId, onValidate, onDelete, onRefresh }) =>
               {/* Thumbnails */}
               <div className="mt-4 pt-4 border-t border-white/5 flex flex-wrap gap-2">
                 {(Array.isArray(o.photos) ? o.photos : []).slice(0, 8).map((p) => (
-                  <img
+                  <ProtectedImage
                     key={p.id}
                     src={resolveImageUrl(p.url)}
                     alt={p.title || ""}
+                    wrapperClassName="w-14 h-14"
                     className="w-14 h-14 object-cover rounded-sm"
+                    watermark={false}
                   />
                 ))}
                 {Array.isArray(o.photos) && o.photos.length > 8 && (

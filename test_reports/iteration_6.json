@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 6 verified the broken-photo-previews fix end-to-end. Backend: pytest 28/28 PASS, with 3 new dedicated tests in TestPhotoUrlFix covering (a) Unsplash URLs returned verbatim, (b) uploaded JPEG returns a RELATIVE URL starting with /api/files/nophotopix/uploads/ (never absolute, never Netlify-prefixed) and is fetchable at {BASE_URL}{url} with HTTP 200 + Content-Type image/*, and (c) the startup migration: inserted a photo doc with url='https://venerable-beignet-9414de.netlify.app/api/files/legacy/test.jpg', restarted backend via supervisorctl, confirmed the URL was rewritten to '/api/files/legacy/test.jpg' (cleaned up after). Existing 25 tests (config, photos, admin, orders, validate, 48h TTL, idempotency, download token, expired token, unauthorized photo) all still PASS. Frontend Playwright at 1920x4000: home /gallery shows 8/8 photo-tile-* with .protected-img and .watermark-layer overlays, every img has naturalWidth>0 & complete=true, every src is https://images.unsplash.com/...; 0 [data-testid$='-error'] placeholders; right-click on tile img dispatched contextmenu has defaultPrevented=true; draggable='false' on img. Admin /admin upload: logged in with Noclan97140$, switched to 'Toutes les photos' tab, uploaded a JPEG via file input — the new tile's <img>.src is correctly prefixed with REACT_APP_BACKEND_URL (https://image-select-pay.preview.emergentagent.com/api/files/nophotopix/uploads/<uuid>.jpg), nw=200, complete=true, and the wrapper has NO .watermark-layer (watermark={false} confirmed for admin tiles); page reload preserves rendering; tile was cleaned up via DELETE /api/photos. Mobile viewport 375x700: same 8 gallery tiles fetched successfully (naturalWidth=3264..5921, complete=true), 0 broken/error tiles.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/admin/orders/{id}/validate", "issue": "Still returns HTTP 502 'Commande validée mais email NON envoyé' because SENDGRID_API_KEY is invalid (declared mocked in review). Order state IS persisted (status=completed, download_token, download_expires_at). Out of scope."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "ProtectedImage", "issue": "On mobile (375x700) fresh page load, gallery tiles' <img> finish loading (naturalWidth>0, complete=true) but the React `status` state can remain 'loading', leaving the <img> at opacity-0 over the .protected-skeleton, so the user briefly (or persistently on a tight cache-hit race) sees only the skeleton. The 8 tiles in the mobile screenshot looked like dark skeletons even though the image data was already in memory. This is the onLoad-vs-mount race that the iteration 5 code review already flagged as a non-blocking improvement. Suggestion: in ProtectedImage useEffect, after setCurrentSrc, also check imgRef.current?.complete && naturalWidth>0 and immediately set status='loaded' to cover cache-hit / SSR-prefetch races. Also setting status='loaded' on onError would let the watermark cover the alt-text fallback.", "selector": ".protected-img > .protected-skeleton", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Consider adding the cache-hit race mitigation in ProtectedImage.jsx (useEffect: if imgRef.current?.complete && naturalWidth>0 -> setStatus('loaded')) — affects perceived loading on mobile and on cached navigations. Non-blocking for the URL-prefix fix itself which is verified working."
+  ],
+  "critical_code_review_comments": [
+    "server.py L1180-1210 _migrate_photo_urls: idempotent and well-scoped — only strips when followed by /api/files/ or /uploads/, so external image hosts are untouched. Good. Minor: also append current REACT_APP_BACKEND_URL host? Not needed today since the legacy data was Netlify-prefixed; current backend writes relative URLs.",
+    "server.py L301-310 _hydrate_photo: now a no-op (just normalises None to ''). Clean.",
+    "server.py L286-298 _absolute_url: kept for emails only (deprecated for photos) — correctly documented; PUBLIC_BASE_URL still used for /success links and similar.",
+    "ProtectedImage.jsx L62-73 handleError + retriedRef: retry-once with cache-buster is a solid mobile fix; falls back to premium placeholder. However setStatus('loaded') is NOT called on error, so watermark layer never overlays the placeholder — minor UX inconsistency but acceptable.",
+    "ProtectedImage.jsx L42-46 useEffect on src change: resets status to 'loading'; this is what causes the cache-hit race on mobile where the <img> can already be in memory when React re-renders but onLoad doesn't refire. Adding an explicit complete+naturalWidth check in this effect would close the race.",
+    "Admin.jsx 3 ProtectedImage usages (L674, L766, L892) correctly use watermark={false} so admin previews are clean — verified visually (uploaded tile has no .watermark-layer)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_api.py — added _jpeg_bytes() helper and new class TestPhotoUrlFix with 3 tests: test_unsplash_urls_returned_verbatim, test_uploaded_jpeg_returns_relative_url, test_startup_migration_strips_legacy_netlify_prefix (uses pymongo + supervisorctl restart backend + recheck)."
+  ],
+  "success_rate": {"backend": "100% (28/28 pytest, incl. 3 new URL-fix tests)", "frontend": "100% functional (gallery, admin upload+reload, right-click block, mobile fetch). 1 medium UX nit on mobile cache-hit race."},
+  "test_credentials": "Admin X-Admin-Token / login password = Noclan97140$ (trailing $ part of pwd). Source: /app/memory/test_credentials.md and /app/backend/.env ADMIN_PASSWORD.",
+  "seed_data_creation": "Created+deleted: one uploaded JPEG via admin UI (cleaned via DELETE /api/photos). One temporary legacy-prefixed photo doc inserted via pymongo for migration test (cleaned in finally block). No leftover data.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "The URL-preview fix is verified. Backend writes RELATIVE URLs (/api/files/nophotopix/uploads/<uuid>.<ext> for object-storage or /uploads/... for local fallback); frontend's resolveImageUrl prefixes REACT_APP_BACKEND_URL. The migration runs on every startup_event AFTER seed_photos and is idempotent — safe to leave in place. SendGrid 401 is expected (mocked). For UI tests on the mobile cache-hit race: query both protected-img elements AND check img.complete && naturalWidth>0 — they may be loaded even when the React-rendered .protected-skeleton is still visible. Useful selectors: [data-testid^='photo-tile-'], .protected-img, .watermark-layer, [data-testid$='-error'].",
+  "rca of the issue": "Root cause was already correctly identified and fixed: backend's _hydrate_photo previously prefixed every photo.url with PUBLIC_BASE_URL (which is the FRONTEND Netlify host), so /api/files/... resolved against the wrong origin and 404'd. The new server.py keeps URLs relative; the frontend resolveImageUrl prefixes REACT_APP_BACKEND_URL (the Render backend). The startup migration also strips legacy Netlify prefixes from any existing photo.url documents. Verified by (1) fresh upload returning '/api/files/nophotopix/uploads/<uuid>.jpg', (2) live fetch of that URL via backend returning 200 image/jpeg, (3) end-to-end render in admin grid at the correct backend-prefixed URL, and (4) migration test inserting a Netlify-prefixed doc and observing it rewritten to relative form after backend restart."
+}

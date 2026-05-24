@@ -284,8 +284,11 @@ async def get_config():
 
 
 def _absolute_url(url: str) -> str:
-    """Convert a relative /uploads/... path into a fully-qualified URL using PUBLIC_BASE_URL.
-    If PUBLIC_BASE_URL is not set, returns the path unchanged (server-relative)."""
+    """DEPRECATED for photo URLs — kept for email-template usage only.
+    Returns absolute URL using PUBLIC_BASE_URL (must be a FRONTEND URL).
+    For API resources like /api/files/... use the frontend's REACT_APP_BACKEND_URL instead
+    (the frontend will hydrate the URL via resolveImageUrl).
+    """
     if not url:
         return url
     if url.startswith("http://") or url.startswith("https://"):
@@ -296,9 +299,14 @@ def _absolute_url(url: str) -> str:
 
 
 def _hydrate_photo(doc: dict) -> dict:
-    """Ensure photo.url is always an absolute, frontend-usable URL."""
-    if isinstance(doc, dict) and "url" in doc:
-        doc["url"] = _absolute_url(doc["url"])
+    """Return photo.url as-is (relative or absolute).
+    The frontend's resolveImageUrl() prefixes REACT_APP_BACKEND_URL for relative paths,
+    which correctly resolves API resources (/api/files/...) and local uploads (/uploads/...)
+    to the Render backend, not the Netlify frontend.
+    External URLs (https://images.unsplash.com/...) are kept verbatim.
+    """
+    if isinstance(doc, dict) and "url" in doc and doc["url"] is None:
+        doc["url"] = ""
     return doc
 
 
@@ -468,14 +476,14 @@ async def _album_meta(album: dict) -> dict:
     if cover_id:
         cover = await db.photos.find_one({"id": cover_id}, {"_id": 0, "url": 1})
         if cover:
-            cover_url = _absolute_url(cover.get("url", ""))
+            cover_url = cover.get("url") or None
     if not cover_url:
         # fallback: first photo of the album
         first = await db.photos.find_one(
             {"album_id": album["id"]}, {"_id": 0, "url": 1}, sort=[("created_at", 1)]
         )
         if first:
-            cover_url = _absolute_url(first.get("url", ""))
+            cover_url = first.get("url") or None
     album["cover_url"] = cover_url
     return album
 
@@ -1169,6 +1177,39 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+async def _migrate_photo_urls():
+    """One-shot migration: strip any legacy frontend-host prefix from photo.url so the
+    URL becomes relative again (/api/files/... or /uploads/...). The frontend then
+    correctly resolves them via REACT_APP_BACKEND_URL.
+
+    This is idempotent and safe: photos that already store relative URLs or external
+    https URLs are left untouched. Targets the well-known accidental prefix observed
+    in earlier deploys (PUBLIC_BASE_URL pointing to the Netlify frontend).
+    """
+    # Known bad prefixes — extend if more domains are observed
+    bad_prefixes = [
+        "https://venerable-beignet-9414de.netlify.app",
+        "http://venerable-beignet-9414de.netlify.app",
+    ]
+    # Also strip the currently-configured PUBLIC_BASE_URL if it is a frontend URL
+    if PUBLIC_BASE_URL:
+        pb = PUBLIC_BASE_URL.rstrip("/")
+        if pb and pb not in bad_prefixes:
+            bad_prefixes.append(pb)
+
+    fixed = 0
+    for prefix in bad_prefixes:
+        # Only strip when followed by an API/upload path — never strip from external image hosts
+        async for doc in db.photos.find(
+            {"url": {"$regex": f"^{prefix}/(api/files/|uploads/)"}}, {"_id": 1, "url": 1}
+        ):
+            new_url = doc["url"][len(prefix):]
+            await db.photos.update_one({"_id": doc["_id"]}, {"$set": {"url": new_url}})
+            fixed += 1
+    if fixed:
+        logger.info(f"Migrated {fixed} photo URL(s) to relative form")
+
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -1188,6 +1229,7 @@ async def startup_event():
     else:
         logger.info("EMERGENT_LLM_KEY not set — uploads will use local disk")
     await seed_photos()
+    await _migrate_photo_urls()
 
 
 @app.on_event("shutdown")
