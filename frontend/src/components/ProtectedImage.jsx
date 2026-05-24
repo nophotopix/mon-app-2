@@ -61,6 +61,7 @@ export const ProtectedImage = ({
           setLoaded(true);
           if (onLoad) onLoad(e);
         }}
+        onError={() => setLoaded(true)}
         className={`select-none ${className}`}
         style={{
           WebkitUserDrag: "none",
