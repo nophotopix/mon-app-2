@@ -735,6 +735,7 @@ class OrderPaid(BaseModel):
 async def mark_order_paid(
     order_id: str,
     body: OrderPaid,
+    request: Request,
 ):
     """
     Client-side manual payment confirmation for PayPal/Wero/Revolut.
@@ -750,11 +751,23 @@ async def mark_order_paid(
 
     # Idempotency: if token already exists, keep the same link, but still
     # re-attempt missing email steps (best-effort).
+    public_base = _resolve_public_base(request)
+
     if order.get("status") == "completed" and order.get("download_token"):
         if body.proof is not None and not order.get("proof"):
             await db.orders.update_one({"id": order_id}, {"$set": {"proof": body.proof}})
 
         order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+        if not order.get("download_url"):
+            order["download_url"] = (
+                f"{public_base}/download/{order['download_token']}"
+                if public_base
+                else f"/download/{order['download_token']}"
+            )
+            await db.orders.update_one(
+                {"id": order_id},
+                {"$set": {"download_url": order["download_url"]}},
+            )
         await _hydrate_order(order)
 
         album_name = order.get("album_name")
@@ -781,19 +794,30 @@ async def mark_order_paid(
     now = datetime.now(timezone.utc).isoformat()
     token = _gen_download_token()
     expires_at = (datetime.now(timezone.utc) + timedelta(hours=DOWNLOAD_TOKEN_TTL_HOURS)).isoformat()
+    logger.info(
+        f"[DOWNLOAD TOKEN CREATED] order={order_id} token={token[:12]}... expires_at={expires_at}"
+    )
 
     update_fields = {
         "status": "completed",
         "validated_at": now,
         "download_token": token,
         "download_expires_at": expires_at,
+        "download_url": f"{public_base}/download/{token}" if public_base else f"/download/{token}",
     }
     if body.proof is not None:
         update_fields["proof"] = body.proof
 
-    await db.orders.update_one({"id": order_id}, {"$set": update_fields})
+    upd = await db.orders.update_one({"id": order_id}, {"$set": update_fields})
+    logger.info(
+        f"[DOWNLOAD TOKEN SAVED] order={order_id} matched={upd.matched_count} modified={upd.modified_count}"
+    )
 
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    logger.info(
+        f"[DOWNLOAD TOKEN REFETCH] order={order_id} has_token={bool(order and order.get('download_token'))} "
+        f"has_url={bool(order and order.get('download_url'))} has_expires={bool(order and order.get('download_expires_at'))}"
+    )
     await _hydrate_order(order)
 
     album_name = order.get("album_name")
@@ -868,6 +892,7 @@ async def validate_order(
             "validated_at": now,
             "download_token": token,
             "download_expires_at": expires_at,
+            "download_url": download_url,
         }},
     )
     order["status"] = "completed"
@@ -1003,10 +1028,30 @@ def _gen_download_token() -> str:
     return secrets.token_urlsafe(40)
 
 
+def _resolve_public_base(request: Optional[Request] = None) -> str:
+    """
+    Resolve the best public frontend base URL for download links.
+    Priority:
+      1) PUBLIC_BASE_URL env (production canonical)
+      2) Origin header (when called from frontend)
+      3) Request base URL (backend host fallback)
+    """
+    if PUBLIC_BASE_URL:
+        return PUBLIC_BASE_URL.rstrip("/")
+    if request is not None:
+        origin = request.headers.get("origin")
+        if origin:
+            return origin.rstrip("/")
+        return str(request.base_url).rstrip("/")
+    return ""
+
+
 def _send_download_email(order: dict, album_name: Optional[str] = None) -> tuple:
     """Send the customer email with their secure download link."""
-    base = (PUBLIC_BASE_URL or "").rstrip("/")
-    download_url = f"{base}/download/{order['download_token']}"
+    download_url = order.get("download_url") or ""
+    if not download_url:
+        base = (PUBLIC_BASE_URL or "").rstrip("/")
+        download_url = f"{base}/download/{order['download_token']}" if base else f"/download/{order['download_token']}"
     photo_count = len(order.get("photo_ids", []))
 
     html = f"""
@@ -1275,6 +1320,8 @@ async def _finalize_paid_order(session_id: str) -> Optional[dict]:
     token = _gen_download_token()
     expires_at = (datetime.now(timezone.utc) + timedelta(hours=DOWNLOAD_TOKEN_TTL_HOURS)).isoformat()
     now = datetime.now(timezone.utc).isoformat()
+    base = _resolve_public_base()
+    download_url = f"{base}/download/{token}" if base else f"/download/{token}"
 
     await db.orders.update_one(
         {"id": order["id"], "status": {"$ne": "completed"}},
@@ -1283,6 +1330,7 @@ async def _finalize_paid_order(session_id: str) -> Optional[dict]:
             "validated_at": now,
             "download_token": token,
             "download_expires_at": expires_at,
+            "download_url": download_url,
         }},
     )
 
@@ -1377,20 +1425,40 @@ async def stripe_webhook(request: Request):
 # ============= DOWNLOAD =============
 
 async def _get_download_order(token: str) -> dict:
+    token = (token or "").strip()
+    logger.info(f"[DOWNLOAD TOKEN RECEIVED] token={token[:20]}... length={len(token)}")
     if not token:
+        logger.error("[DOWNLOAD ERROR REASON] empty token")
         raise HTTPException(status_code=404, detail="Lien invalide")
     order = await db.orders.find_one({"download_token": token}, {"_id": 0})
-    if not order or order.get("status") != "completed":
+    logger.info(f"[DOWNLOAD ORDER FOUND] {bool(order)}")
+    allowed_statuses = {
+        "payment_declared",
+        "completed",
+        "link_sent",
+        "validated",
+        "verified",
+        "downloaded",
+    }
+    if order:
+        logger.info(f"[DOWNLOAD ORDER STATUS] {order.get('status')}")
+    if not order or order.get("status") not in allowed_statuses:
+        logger.error(
+            f"[DOWNLOAD ERROR REASON] not found or invalid status status={order.get('status') if order else 'none'}"
+        )
         raise HTTPException(status_code=404, detail="Lien invalide ou commande non payée")
     # Check expiration
     expires_str = order.get("download_expires_at")
+    logger.info(f"[DOWNLOAD EXPIRES_AT] {expires_str}")
+    logger.info(f"[DOWNLOAD CURRENT_TIME] {datetime.now(timezone.utc).isoformat()}")
     if expires_str:
         try:
             expires = datetime.fromisoformat(expires_str.replace("Z", "+00:00"))
             if datetime.now(timezone.utc) > expires:
+                logger.error("[DOWNLOAD ERROR REASON] token expired")
                 raise HTTPException(status_code=410, detail="Ce lien de téléchargement a expiré")
         except (ValueError, TypeError):
-            pass
+            logger.error("[DOWNLOAD ERROR REASON] invalid expires_at format")
     return order
 
 
