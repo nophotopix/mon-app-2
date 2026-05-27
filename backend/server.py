@@ -37,6 +37,7 @@ SENDGRID_API_KEY = os.environ.get('SENDGRID_API_KEY', '')
 SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'no-reply@nophotopix.com')
 SENDER_NAME = os.environ.get('SENDER_NAME', 'No.Photo.Pix')
 PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '')
+ADMIN_NOTIFICATION_EMAIL = os.environ.get('ADMIN_NOTIFICATION_EMAIL', 'nophotopix@gmail.com')
 
 # Stripe
 STRIPE_API_KEY = os.environ.get('STRIPE_API_KEY', '')
@@ -211,11 +212,18 @@ class OrderCreate(BaseModel):
     photo_ids: List[str]
     total: float
     payment_method: str  # paypal | wero | revolut
+    # Client info (name + phone optional)
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    # Optional album context (for nicer admin email copy)
+    album_id: Optional[str] = None
 
 
 class Order(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: Optional[str] = None
+    phone: Optional[str] = None
     email: str
     photo_ids: List[str]
     total: float
@@ -228,6 +236,12 @@ class Order(BaseModel):
     download_token: Optional[str] = None
     download_expires_at: Optional[str] = None
     download_url: Optional[str] = None
+    # Extra workflow metadata for the "paid" manual flow
+    proof: Optional[str] = None
+    verified: bool = False
+    downloaded_at: Optional[str] = None
+    admin_notified: bool = False
+    album_name: Optional[str] = None
     stripe_session_id: Optional[str] = None
     album_id: Optional[str] = None
 
@@ -597,6 +611,12 @@ async def _hydrate_order(order: dict) -> dict:
     ).to_list(1000)
     by_id = {p["id"]: _hydrate_photo(p) for p in photo_docs}
     order["photos"] = [by_id[pid] for pid in order.get("photo_ids", []) if pid in by_id]
+    # Resolve album name for emails + admin UI
+    if order.get("album_id"):
+        album = await db.albums.find_one({"id": order["album_id"]}, {"_id": 0, "name": 1})
+        order["album_name"] = album.get("name") if album else "Galerie"
+    else:
+        order["album_name"] = "Galerie"
     return order
 
 
@@ -690,6 +710,9 @@ async def create_order(body: OrderCreate):
         photo_ids=body.photo_ids,
         total=body.total,
         payment_method=body.payment_method,
+        name=body.name,
+        phone=body.phone,
+        album_id=body.album_id,
     )
     await db.orders.insert_one(order.model_dump())
     return order
@@ -701,6 +724,95 @@ async def get_order(order_id: str):
     if not order:
         raise HTTPException(status_code=404, detail="Commande introuvable")
     await _hydrate_order(order)
+    return order
+
+
+class OrderPaid(BaseModel):
+    proof: Optional[str] = None
+
+
+@api_router.post("/orders/{order_id}/paid", response_model=OrderWithPhotos)
+async def mark_order_paid(
+    order_id: str,
+    body: OrderPaid,
+):
+    """
+    Client-side manual payment confirmation for PayPal/Wero/Revolut.
+    Generates the secure 48h download token, sends the customer HD email and
+    notifies the admin/photographer by email.
+    """
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Commande introuvable")
+
+    if order.get("status") == "refused":
+        raise HTTPException(status_code=403, detail="Commande refusée")
+
+    # Idempotency: if token already exists, keep the same link, but still
+    # re-attempt missing email steps (best-effort).
+    if order.get("status") == "completed" and order.get("download_token"):
+        if body.proof is not None and not order.get("proof"):
+            await db.orders.update_one({"id": order_id}, {"$set": {"proof": body.proof}})
+
+        order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+        await _hydrate_order(order)
+
+        album_name = order.get("album_name")
+        if not order.get("email_sent"):
+            sent, send_error = _send_download_email(order, album_name=album_name)
+            await db.orders.update_one(
+                {"id": order_id},
+                {"$set": {"email_sent": sent, "email_error": (send_error or None)}},
+            )
+            order["email_sent"] = sent
+            order["email_error"] = send_error
+
+        if not order.get("admin_notified"):
+            base = (PUBLIC_BASE_URL or "").rstrip("/")
+            admin_order_url = (
+                f"{base}/admin?order_id={order_id}" if base else f"/admin?order_id={order_id}"
+            )
+            admin_ok, _ = _send_admin_notification_email(order, order.get("photos") or [], admin_order_url)
+            await db.orders.update_one({"id": order_id}, {"$set": {"admin_notified": admin_ok}})
+            order["admin_notified"] = admin_ok
+
+        return order
+
+    now = datetime.now(timezone.utc).isoformat()
+    token = _gen_download_token()
+    expires_at = (datetime.now(timezone.utc) + timedelta(hours=DOWNLOAD_TOKEN_TTL_HOURS)).isoformat()
+
+    update_fields = {
+        "status": "completed",
+        "validated_at": now,
+        "download_token": token,
+        "download_expires_at": expires_at,
+    }
+    if body.proof is not None:
+        update_fields["proof"] = body.proof
+
+    await db.orders.update_one({"id": order_id}, {"$set": update_fields})
+
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    await _hydrate_order(order)
+
+    album_name = order.get("album_name")
+    sent, send_error = _send_download_email(order, album_name=album_name)
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {"email_sent": sent, "email_error": (send_error or None)}},
+    )
+    order["email_sent"] = sent
+    order["email_error"] = send_error
+
+    base = (PUBLIC_BASE_URL or "").rstrip("/")
+    admin_order_url = (
+        f"{base}/admin?order_id={order_id}" if base else f"/admin?order_id={order_id}"
+    )
+    admin_ok, _ = _send_admin_notification_email(order, order.get("photos") or [], admin_order_url)
+    await db.orders.update_one({"id": order_id}, {"$set": {"admin_notified": admin_ok}})
+    order["admin_notified"] = admin_ok
+
     return order
 
 
@@ -766,8 +878,8 @@ async def validate_order(
 
     logger.info(f"[ORDER VALIDATED] id={order_id} email={order['email']} token={token[:12]}... url={download_url}")
 
-    # Resolve album name (for nicer email copy)
-    album_name = None
+    # Resolve album name (for email copy)
+    album_name = "Galerie"
     if order.get("album_id"):
         album = await db.albums.find_one({"id": order["album_id"]}, {"_id": 0, "name": 1})
         if album:
@@ -791,6 +903,71 @@ async def validate_order(
 
     await _hydrate_order(order)
     # Always 200. Admin UI displays the email_error + copy-to-clipboard download link.
+    return order
+
+
+@api_router.post("/admin/orders/{order_id}/resend", response_model=OrderWithPhotos)
+async def resend_order_email(
+    order_id: str,
+    x_admin_token: Optional[str] = Header(None),
+):
+    """Admin helper to re-send the customer email with the already-generated link."""
+    _check_admin(x_admin_token)
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Commande introuvable")
+    if order.get("status") != "completed" or not order.get("download_token"):
+        raise HTTPException(status_code=400, detail="Commande non validée / lien indisponible")
+
+    await _hydrate_order(order)
+    album_name = order.get("album_name")
+    sent, send_error = _send_download_email(order, album_name=album_name)
+    await db.orders.update_one(
+        {"id": order_id},
+        {"$set": {"email_sent": sent, "email_error": (send_error or None)}},
+    )
+    order["email_sent"] = sent
+    order["email_error"] = send_error
+    return order
+
+
+@api_router.post("/admin/orders/{order_id}/verify", response_model=dict)
+async def verify_order(
+    order_id: str,
+    x_admin_token: Optional[str] = Header(None),
+):
+    _check_admin(x_admin_token)
+    res = await db.orders.update_one({"id": order_id}, {"$set": {"verified": True}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Commande introuvable")
+    return {"success": True, "verified": True}
+
+
+@api_router.post("/admin/orders/{order_id}/refuse", response_model=OrderWithPhotos)
+async def refuse_order(
+    order_id: str,
+    x_admin_token: Optional[str] = Header(None),
+):
+    """Admin refusal: blocks future downloads by switching status."""
+    _check_admin(x_admin_token)
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(status_code=404, detail="Commande introuvable")
+
+    await db.orders.update_one(
+        {"id": order_id},
+        {
+            "$set": {
+                "status": "refused",
+                "verified": False,
+                "download_token": None,
+                "download_expires_at": None,
+                "download_url": None,
+            }
+        },
+    )
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    await _hydrate_order(order)
     return order
 
 
@@ -852,6 +1029,9 @@ def _send_download_email(order: dict, album_name: Optional[str] = None) -> tuple
         Ce lien est valable pendant <strong>48 heures</strong> à compter de la réception de cet email.
         Téléchargements illimités pendant cette période. Conservez vos photos en local.
       </p>
+      <p style="color:#666;font-size:12px;margin-top:14px;">
+        Si vous n’avez pas finalisé le paiement, votre accès pourra être désactivé.
+      </p>
       <p style="color:#666;font-size:11px;margin-top:32px;word-break:break-all;">
         Lien direct : {download_url}
       </p>
@@ -912,6 +1092,94 @@ def _send_download_email(order: dict, album_name: Optional[str] = None) -> tuple
         return False, "Aucune clé SendGrid configurée (SENDGRID_API_KEY manquante). Copie le lien et envoie-le manuellement au client."
 
 
+def _send_admin_notification_email(
+    order: dict,
+    ordered_photos: list,
+    admin_order_url: str,
+):
+    """
+    Send a SendGrid notification to the photographer/admin with the order details.
+    Best-effort: returns (success: bool, error_message: Optional[str]).
+    """
+    client_name = (order.get("name") or "").strip() or "—"
+    client_phone = (order.get("phone") or "").strip() or "—"
+    proof = (order.get("proof") or "").strip() or "Aucune preuve fournie."
+    album_name = order.get("album_name") or "Galerie"
+
+    photo_list_items = ""
+    for p in ordered_photos:
+        title = p.get("title") or p.get("id") or "Photo"
+        photo_list_items += f"<li style='margin:6px 0;color:#fff;'>{title}</li>"
+
+    html = f"""
+    <div style="font-family:Arial,sans-serif;max-width:720px;margin:0 auto;background:#050505;color:#fff;padding:32px 24px;">
+      <h1 style="color:#E8B23A;font-family:Georgia,serif;font-weight:300;font-size:28px;margin:0 0 16px;">
+        Nouvelle commande NO.PHOTO.PIX
+      </h1>
+      <div style="color:#aaa;font-size:13px;letter-spacing:2px;text-transform:uppercase;margin-bottom:22px;">
+        No.Photo.Pix · Commande client
+      </div>
+
+      <div style="background:#0a0a0a;border:1px solid #222;padding:16px 16px;margin-bottom:18px;">
+        <p style="margin:8px 0;"><strong style="color:#E8B23A;">Nom client :</strong> {client_name}</p>
+        <p style="margin:8px 0;"><strong style="color:#E8B23A;">Email :</strong> {order.get('email','')}</p>
+        <p style="margin:8px 0;"><strong style="color:#E8B23A;">Téléphone :</strong> {client_phone}</p>
+        <p style="margin:8px 0;"><strong style="color:#E8B23A;">Méthode de paiement :</strong> {order.get('payment_method','')}</p>
+        <p style="margin:8px 0;"><strong style="color:#E8B23A;">Montant :</strong> <span style="color:#E8B23A;">{order.get('total','')} €</span></p>
+        <p style="margin:8px 0;"><strong style="color:#E8B23A;">Album :</strong> {album_name}</p>
+      </div>
+
+      <div style="background:#0a0a0a;border:1px solid #222;padding:16px 16px;margin-bottom:18px;">
+        <p style="margin:0 0 10px;"><strong style="color:#E8B23A;">Photos commandées :</strong></p>
+        <ul style="padding-left:18px;margin:0;list-style:disc;line-height:1.4;">
+          {photo_list_items or "<li style='margin:6px 0;color:#fff;'>—</li>"}
+        </ul>
+      </div>
+
+      <div style="background:#0a0a0a;border:1px solid #222;padding:16px 16px;margin-bottom:18px;">
+        <p style="margin:0 0 10px;"><strong style="color:#E8B23A;">Lien admin commande :</strong></p>
+        <p style="margin:0;color:#fff;word-break:break-all;">
+          <a href="{admin_order_url}" style="color:#E8B23A;text-decoration:none;">{admin_order_url}</a>
+        </p>
+      </div>
+
+      <div style="background:#0a0a0a;border:1px solid #222;padding:16px 16px;">
+        <p style="margin:0 0 10px;"><strong style="color:#E8B23A;">Preuve optionnelle :</strong></p>
+        <p style="margin:0;color:#ddd;word-break:break-word;line-height:1.4;">{proof}</p>
+      </div>
+    </div>
+    """
+
+    if SENDGRID_API_KEY:
+        try:
+            from sendgrid import SendGridAPIClient
+            from sendgrid.helpers.mail import Mail, From
+
+            message = Mail(
+                from_email=From(SENDER_EMAIL, SENDER_NAME),
+                to_emails=ADMIN_NOTIFICATION_EMAIL,
+                subject="Nouvelle commande NO.PHOTO.PIX",
+                html_content=html,
+            )
+            sg = SendGridAPIClient(SENDGRID_API_KEY)
+            resp = sg.send(message)
+            logger.info(
+                f"[ADMIN EMAIL OK] to={ADMIN_NOTIFICATION_EMAIL} order={order.get('id')} status={resp.status_code}"
+            )
+            return True, None
+        except Exception as exc:
+            err_text = str(exc)
+            logger.error(
+                f"[ADMIN EMAIL FAILED] to={ADMIN_NOTIFICATION_EMAIL} order={order.get('id')} error={err_text}"
+            )
+            return False, err_text
+
+    logger.warning(
+        f"[ADMIN EMAIL NOT SENT] SENDGRID_API_KEY manquante — order={order.get('id')}."
+    )
+    return False, "SENDGRID_API_KEY manquante"
+
+
 def _get_stripe_checkout(host_url: str):
     """Initialize Stripe checkout helper. Uses STRIPE_API_KEY env var (sk_test_emergent by default)."""
     from emergentintegrations.payments.stripe.checkout import StripeCheckout
@@ -922,6 +1190,8 @@ def _get_stripe_checkout(host_url: str):
 @api_router.post("/payments/checkout/session")
 async def create_stripe_checkout(body: StripeCheckoutRequest, request: Request):
     """Create a Stripe Checkout Session for the selected photos. Amount computed server-side."""
+    raise HTTPException(status_code=404, detail="Stripe non disponible (paiements manuels uniquement)")
+
     from emergentintegrations.payments.stripe.checkout import CheckoutSessionRequest
 
     if "@" not in body.email or "." not in body.email:
@@ -1038,6 +1308,8 @@ async def _finalize_paid_order(session_id: str) -> Optional[dict]:
 @api_router.get("/payments/checkout/status/{session_id}")
 async def get_checkout_status(session_id: str, request: Request):
     """Poll Stripe session status. Finalizes order (idempotent) when status=paid."""
+    raise HTTPException(status_code=404, detail="Stripe non disponible (paiements manuels uniquement)")
+
     if not STRIPE_API_KEY:
         raise HTTPException(status_code=500, detail="Stripe non configuré")
     host_url = str(request.base_url)
@@ -1071,6 +1343,8 @@ async def get_checkout_status(session_id: str, request: Request):
 @api_router.post("/webhook/stripe")
 async def stripe_webhook(request: Request):
     """Stripe webhook receiver. Validates signature and finalizes orders."""
+    raise HTTPException(status_code=404, detail="Stripe non disponible (paiements manuels uniquement)")
+
     if not STRIPE_API_KEY:
         raise HTTPException(status_code=500, detail="Stripe non configuré")
     body = await request.body()
@@ -1151,6 +1425,15 @@ async def download_info(token: str):
 async def download_file(token: str, photo_id: str):
     """Stream a specific photo file (must belong to the validated order)."""
     order = await _get_download_order(token)
+    # Mark as downloaded on first successful access (idempotent-ish).
+    try:
+        await db.orders.update_one(
+            {"id": order.get("id"), "downloaded_at": {"$exists": False}},
+            {"$set": {"downloaded_at": datetime.now(timezone.utc).isoformat()}},
+        )
+    except Exception:
+        # Download streaming should not fail because the analytics update failed.
+        pass
     if photo_id not in order.get("photo_ids", []):
         raise HTTPException(status_code=403, detail="Photo non autorisée pour ce lien")
     photo = await db.photos.find_one({"id": photo_id}, {"_id": 0})

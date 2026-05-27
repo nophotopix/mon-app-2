@@ -5,7 +5,6 @@ import {
   createAlbum,
   deleteAlbum,
   deletePhoto,
-  deleteOrder,
   fetchAdminOrders,
   fetchAlbum,
   fetchAlbums,
@@ -14,7 +13,9 @@ import {
   updateAlbum,
   uploadPhoto,
   uploadPhotoToAlbum,
-  validateOrder,
+  resendOrderLink,
+  verifyOrder,
+  refuseOrder,
 } from "../lib/api";
 import { PaymentMethodIcon } from "../components/PaymentIcons";
 import { ProtectedImage } from "../components/ProtectedImage";
@@ -203,20 +204,17 @@ export default function Admin() {
     }
   };
 
-  const handleValidate = async (orderId) => {
-    if (!confirm("Valider cette commande et générer le lien HD ?")) return;
+  const handleResendLink = async (orderId) => {
+    if (!confirm("Renvoyer le lien HD au client (email) ?")) return;
     setValidatingId(orderId);
     try {
-      const updated = await validateOrder(orderId, token);
+      const updated = await resendOrderLink(orderId, token);
       if (updated?.email_sent) {
-        toast.success("Commande validée · email envoyé au client", { duration: 6000 });
+        toast.success("Lien renvoyé · email envoyé au client", { duration: 6000 });
       } else if (updated?.email_error) {
-        toast.warning(
-          `Lien HD généré, mais email NON envoyé. Copie-le manuellement (bouton ci-dessous). Détail : ${updated.email_error}`,
-          { duration: 14000 }
-        );
+        toast.warning(`Email NON envoyé. Détail : ${updated.email_error}`, { duration: 14000 });
       } else {
-        toast.success("Commande validée · lien HD disponible");
+        toast.success("Lien renvoyé");
       }
       await loadOrders();
     } catch (err) {
@@ -225,21 +223,32 @@ export default function Admin() {
         toast.error("Session expirée");
         handleLogout();
       } else {
-        toast.error("Erreur de validation");
+        toast.error("Erreur de renvoi");
       }
     } finally {
       setValidatingId(null);
     }
   };
 
-  const handleDeleteOrder = async (orderId) => {
-    if (!confirm("Supprimer cette commande définitivement ?")) return;
+  const handleVerifyOrder = async (orderId) => {
+    if (!confirm("Marquer cette commande comme vérifiée ?")) return;
     try {
-      await deleteOrder(orderId, token);
-      toast.success("Commande supprimée");
+      await verifyOrder(orderId, token);
+      toast.success("Commande vérifiée");
       await loadOrders();
     } catch {
-      toast.error("Erreur de suppression");
+      toast.error("Erreur de vérification");
+    }
+  };
+
+  const handleRefuseOrder = async (orderId) => {
+    if (!confirm("Refuser cette commande ? (le lien HD sera désactivé)")) return;
+    try {
+      await refuseOrder(orderId, token);
+      toast.success("Commande refusée");
+      await loadOrders();
+    } catch {
+      toast.error("Erreur de refus");
     }
   };
 
@@ -392,9 +401,10 @@ export default function Admin() {
         {tab === "orders" && (
           <OrdersTab
             orders={orders}
-            validatingId={validatingId}
-            onValidate={handleValidate}
-            onDelete={handleDeleteOrder}
+            actioningId={validatingId}
+            onResend={handleResendLink}
+            onVerify={handleVerifyOrder}
+            onRefuse={handleRefuseOrder}
             onRefresh={loadOrders}
           />
         )}
@@ -901,7 +911,14 @@ const DownloadLinkBand = ({ downloadUrl, emailSent, emailError, expiresAt }) => 
   );
 };
 
-const OrdersTab = ({ orders, validatingId, onValidate, onDelete, onRefresh }) => (
+const OrdersTab = ({
+  orders,
+  actioningId,
+  onResend,
+  onVerify,
+  onRefuse,
+  onRefresh,
+}) => (
   <div>
     <div className="flex justify-between items-end mb-6">
       <p className="text-eyebrow text-white/40">Toutes les commandes</p>
@@ -919,15 +936,43 @@ const OrdersTab = ({ orders, validatingId, onValidate, onDelete, onRefresh }) =>
     ) : (
       <div className="space-y-4">
         {orders.map((o) => {
-          const pending = o.status === "pending";
+          const isRefused = o.status === "refused";
+          const isDownloaded = !!o.downloaded_at;
+          const isPending = o.status === "pending";
+          const isCompleted = o.status === "completed";
+
+          const statusLabel = isRefused
+            ? "Refusé"
+            : isDownloaded
+              ? "Téléchargé"
+              : isPending
+                ? "En attente de paiement"
+                : o.email_sent
+                  ? "Lien envoyé"
+                  : "Paiement déclaré";
+
+          const statusColor = isRefused
+            ? "text-red-400"
+            : isDownloaded || (isCompleted && o.email_sent)
+              ? "text-emerald-400"
+              : "text-amber-400";
+
+          const StatusIcon = isRefused
+            ? Clock
+            : isDownloaded || (isCompleted && o.email_sent)
+              ? CheckCircle
+              : Clock;
+
           return (
             <div
               key={o.id}
               data-testid={`admin-order-${o.id}`}
               className={`border rounded-sm p-6 transition-colors ${
-                pending
-                  ? "border-amber-400/30 bg-amber-400/[0.03]"
-                  : "border-white/10 bg-[#0a0a0a]"
+                isRefused
+                  ? "border-red-400/30 bg-red-400/[0.03]"
+                  : isPending
+                    ? "border-amber-400/30 bg-amber-400/[0.03]"
+                    : "border-white/10 bg-[#0a0a0a]"
               }`}
             >
               <div className="flex flex-col lg:flex-row lg:items-center gap-6">
@@ -936,24 +981,28 @@ const OrdersTab = ({ orders, validatingId, onValidate, onDelete, onRefresh }) =>
                     <span className="font-mono text-white text-sm">
                       #{o.id.slice(0, 8).toUpperCase()}
                     </span>
-                    {pending ? (
-                      <span className="inline-flex items-center gap-1 text-amber-400 text-xs">
-                        <Clock size={12} /> En attente
-                      </span>
-                    ) : o.email_sent ? (
-                      <span className="inline-flex items-center gap-1 text-emerald-400 text-xs">
-                        <CheckCircle size={12} weight="fill" /> Validée · email envoyé
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-amber-400 text-xs">
-                        <CheckCircle size={12} weight="fill" /> Validée · email à envoyer manuellement
-                      </span>
-                    )}
+                    <span className={`inline-flex items-center gap-1 ${statusColor} text-xs`}>
+                      <StatusIcon size={12} weight="fill" /> {statusLabel}
+                    </span>
                   </div>
                   <p className="text-white/80 text-sm flex items-center gap-2">
                     <EnvelopeSimple size={14} className="text-white/40" />
                     {o.email}
                   </p>
+                  <p className="text-white/40 text-xs mt-1">
+                    Album : {o.album_name || "Galerie"}
+                  </p>
+                  {o.phone && (
+                    <p className="text-white/40 text-xs mt-1">
+                      Téléphone : {o.phone}
+                    </p>
+                  )}
+                  {o.proof && (
+                    <p className="text-white/40 text-xs mt-1">
+                      Preuve : {String(o.proof).slice(0, 60)}
+                      {String(o.proof).length > 60 ? "…" : ""}
+                    </p>
+                  )}
                   <p className="text-white/40 text-xs mt-1">
                     {new Date(o.created_at).toLocaleString("fr-FR")}
                   </p>
@@ -978,25 +1027,39 @@ const OrdersTab = ({ orders, validatingId, onValidate, onDelete, onRefresh }) =>
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-2 lg:min-w-[240px] lg:justify-end">
-                  {pending && (
+                  {!isRefused && isCompleted && (
                     <button
-                      data-testid={`validate-order-${o.id}`}
-                      disabled={validatingId === o.id}
-                      onClick={() => onValidate(o.id)}
-                      className="bg-gradient-to-r from-[#E8B23A] via-[#FFD66B] to-[#C8902A] text-black px-4 py-2.5 rounded-sm font-medium text-sm hover:brightness-110 transition disabled:opacity-50 flex items-center gap-2 justify-center"
+                      data-testid={`resend-order-${o.id}`}
+                      disabled={actioningId === o.id}
+                      onClick={() => onResend(o.id)}
+                      className="bg-white/5 hover:bg-white/10 text-white px-4 py-2.5 rounded-sm font-medium text-sm transition disabled:opacity-50 flex items-center gap-2 justify-center"
                     >
                       <PaperPlaneTilt size={14} weight="bold" />
-                      {validatingId === o.id ? "Envoi..." : "Valider & envoyer"}
+                      {actioningId === o.id ? "Envoi..." : "Renvoyer lien"}
                     </button>
                   )}
-                  <button
-                    data-testid={`delete-order-${o.id}`}
-                    onClick={() => onDelete(o.id)}
-                    className="text-white/40 hover:text-red-400 px-3 py-2 text-sm transition-colors flex items-center gap-1 justify-center"
-                    title="Supprimer la commande"
-                  >
-                    <Trash size={14} />
-                  </button>
+                  {!isRefused && isCompleted && (
+                    <button
+                      data-testid={`verify-order-${o.id}`}
+                      onClick={() => onVerify(o.id)}
+                      className="bg-gradient-to-r from-[#E8B23A] via-[#FFD66B] to-[#C8902A] text-black px-4 py-2.5 rounded-sm font-medium text-sm hover:brightness-110 transition disabled:opacity-50 flex items-center gap-2 justify-center"
+                    >
+                      <CheckCircle size={14} weight="fill" />
+                      {o.verified ? "Vérifié" : "Marquer vérifié"}
+                    </button>
+                  )}
+
+                  {!isRefused && (
+                    <button
+                      data-testid={`refuse-order-${o.id}`}
+                      onClick={() => onRefuse(o.id)}
+                      className="text-white/40 hover:text-red-400 px-3 py-2 text-sm transition-colors flex items-center gap-1 justify-center"
+                      title="Refuser la commande"
+                    >
+                      <Trash size={14} />
+                      Refuser
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1021,7 +1084,7 @@ const OrdersTab = ({ orders, validatingId, onValidate, onDelete, onRefresh }) =>
 
               {/* Download link block — visible once validated, regardless of email_sent status.
                   Lets the admin copy/share the secure link manually if SendGrid failed. */}
-              {!pending && o.download_url && (
+              {isCompleted && o.download_url && (
                 <DownloadLinkBand
                   order={o}
                   downloadUrl={o.download_url}

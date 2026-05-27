@@ -273,6 +273,7 @@ export default function AlbumView() {
         selectedIds={Array.from(selected)}
         total={total}
         config={config}
+        albumId={albumId}
       />
 
       <Lightbox

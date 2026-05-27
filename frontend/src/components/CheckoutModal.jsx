@@ -2,9 +2,10 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { X, EnvelopeSimple, ArrowRight, CheckCircle } from "@phosphor-icons/react";
 import { PAYMENT_METHODS, buildPaymentInstruction } from "../lib/payments";
-import { createOrder } from "../lib/api";
+import { confirmOrderPaid, createOrder, fetchOrder, resolveImageUrl } from "../lib/api";
 import { toast } from "sonner";
 import { PaymentMethodIcon } from "./PaymentIcons";
+import { ProtectedImage } from "./ProtectedImage";
 
 export const CheckoutModal = ({
   open,
@@ -12,11 +13,16 @@ export const CheckoutModal = ({
   selectedIds,
   total,
   config,
+  albumId,
 }) => {
   const navigate = useNavigate();
   const [step, setStep] = useState(1); // 1=info, 2=method, 3=instructions
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [name, setName] = useState("");
   const [method, setMethod] = useState("paypal");
+  const [proofOpen, setProofOpen] = useState(false);
+  const [proofText, setProofText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [order, setOrder] = useState(null);
 
@@ -25,9 +31,13 @@ export const CheckoutModal = ({
   const reset = () => {
     setStep(1);
     setEmail("");
+    setPhone("");
+    setName("");
     setMethod("paypal");
     setSubmitting(false);
     setOrder(null);
+    setProofOpen(false);
+    setProofText("");
   };
 
   const close = () => {
@@ -46,8 +56,12 @@ export const CheckoutModal = ({
         photo_ids: selectedIds,
         total,
         payment_method: method,
+        name: name.trim() ? name.trim() : null,
+        phone: phone.trim() ? phone.trim() : null,
+        album_id: albumId || null,
       });
-      setOrder(created);
+      const hydrated = await fetchOrder(created.id);
+      setOrder(hydrated);
       setStep(3);
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur lors de la création de la commande");
@@ -132,9 +146,39 @@ export const CheckoutModal = ({
                   />
                 </div>
                 <p className="text-white/40 text-xs mt-2 leading-relaxed">
-                  Vous recevrez les liens de téléchargement HD à cette adresse après validation
-                  manuelle de votre paiement par No.Photo.Pix.
+                  Vous recevrez les liens de téléchargement HD à cette adresse après votre confirmation de paiement.
                 </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-eyebrow text-white/40 block mb-2">
+                    Nom (optionnel)
+                  </label>
+                  <input
+                    data-testid="checkout-name-input"
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Votre nom"
+                    className="w-full bg-[#050505] border border-white/10 focus:border-[#E8B23A]/60 outline-none text-white px-4 py-4 rounded-sm transition-colors"
+                    autoFocus={false}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-eyebrow text-white/40 block mb-2">
+                    Téléphone (optionnel)
+                  </label>
+                  <input
+                    data-testid="checkout-phone-input"
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="+33..."
+                    className="w-full bg-[#050505] border border-white/10 focus:border-[#E8B23A]/60 outline-none text-white px-4 py-4 rounded-sm transition-colors"
+                  />
+                </div>
               </div>
               <button
                 data-testid="checkout-next-step-btn"
@@ -197,6 +241,34 @@ export const CheckoutModal = ({
 
           {step === 3 && order && instruction && (
             <div className="space-y-5">
+              {Array.isArray(order.photos) && order.photos.length > 0 && (
+                <div className="border border-[#E8B23A]/30 bg-[#E8B23A]/[0.04] rounded-sm p-5">
+                  <p className="text-eyebrow text-[#E8B23A] mb-3">Photos sélectionnées</p>
+                  <div className="flex flex-wrap gap-2">
+                    {order.photos.slice(0, 8).map((p) => (
+                      <div key={p.id} className="w-14 h-14 rounded-sm overflow-hidden">
+                        <ProtectedImage
+                          src={resolveImageUrl(p.url)}
+                          alt={p.title || ""}
+                          wrapperClassName="w-full h-full"
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    ))}
+                    {order.photos.length > 8 && (
+                      <div className="w-14 h-14 rounded-sm bg-white/5 flex items-center justify-center text-white/60 text-xs">
+                        +{order.photos.length - 8}
+                      </div>
+                    )}
+                  </div>
+                  <div className="mt-4 flex items-center justify-between gap-3">
+                    <p className="text-white/60 text-sm">
+                      Total : <span className="text-white">{total} €</span>
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <div className="border border-[#E8B23A]/30 bg-[#E8B23A]/[0.04] rounded-sm p-5">
                 <div className="flex items-center gap-3 mb-3">
                   <PaymentMethodIcon id={method} size={32} />
@@ -225,24 +297,67 @@ export const CheckoutModal = ({
               >
                 {instruction.action} <ArrowRight size={16} weight="bold" />
               </button>
+
+              {proofOpen && (
+                <div className="border border-white/10 bg-[#050505] rounded-sm p-4 space-y-3">
+                  <p className="text-eyebrow text-white/40">Preuve (optionnel)</p>
+                  <textarea
+                    data-testid="checkout-proof-input"
+                    value={proofText}
+                    onChange={(e) => setProofText(e.target.value)}
+                    placeholder="Lien vers la preuve / capture d'écran (optionnel)"
+                    className="w-full min-h-[90px] bg-[#0a0a0a] border border-white/10 focus:border-[#E8B23A]/60 outline-none text-white px-4 py-3 rounded-sm transition-colors"
+                  />
+                  <p className="text-white/40 text-xs leading-relaxed">
+                    La preuve sera incluse dans l'email admin au moment où vous cliquez sur « Oui, j’ai payé ».
+                  </p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                  data-testid="checkout-after-payment-btn"
+                  onClick={async () => {
+                    if (!order) return;
+                    setSubmitting(true);
+                    try {
+                      const proof = proofText.trim();
+                      await confirmOrderPaid(order.id, proof ? { proof } : {});
+                      navigate(`/success/${order.id}`);
+                      close();
+                    } catch (err) {
+                      toast.error(
+                        err?.response?.data?.detail || "Erreur lors de la confirmation de paiement"
+                      );
+                    } finally {
+                      setSubmitting(false);
+                    }
+                  }}
+                  disabled={submitting}
+                  className="w-full bg-gradient-to-r from-[#E8B23A] via-[#FFD66B] to-[#C8902A] text-black py-4 rounded-sm font-semibold tracking-wide hover:brightness-110 transition disabled:opacity-50 text-sm"
+                >
+                  {submitting ? "Traitement..." : "Oui, j’ai payé"}
+                </button>
+
+                <button
+                  data-testid="checkout-proof-btn"
+                  onClick={() => setProofOpen((v) => !v)}
+                  className="w-full border border-white/15 text-white hover:bg-white/5 py-4 rounded-sm transition-colors text-sm"
+                >
+                  Envoyer une preuve (optionnel)
+                </button>
+              </div>
+
               <button
-                data-testid="checkout-after-payment-btn"
+                data-testid="checkout-pay-later-btn"
                 onClick={goToSuccess}
                 className="w-full border border-white/15 text-white hover:bg-white/5 py-4 rounded-sm transition-colors text-sm"
               >
-                J'ai effectué le paiement
+                Je payerai plus tard
               </button>
+
               <p className="text-white/40 text-xs leading-relaxed text-center">
-                Après votre paiement, envoyez votre preuve sur Instagram{" "}
-                <a
-                  href="https://www.instagram.com/no_photo_pix/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[#E8B23A] hover:underline"
-                >
-                  @no_photo_pix
-                </a>{" "}
-                pour recevoir vos photos par email.
+                Si vous n’avez pas finalisé le paiement, votre accès pourra être désactivé.
               </p>
             </div>
           )}

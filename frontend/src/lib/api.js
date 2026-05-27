@@ -159,6 +159,16 @@ export const createOrder = async (payload) => {
   return data;
 };
 
+export const confirmOrderPaid = async (orderId, payload = {}) => {
+  const { data } = await api.post(`/orders/${orderId}/paid`, payload);
+  return data;
+};
+
+export const saveOrderProof = async (orderId, payload = {}) => {
+  // Kept for future UX improvements; proof is currently sent via confirmOrderPaid.
+  return confirmOrderPaid(orderId, payload);
+};
+
 // Stripe
 export const createStripeCheckout = async ({ email, photo_ids, album_id }) => {
   const { data } = await api.post("/payments/checkout/session", {
@@ -204,6 +214,33 @@ export const fetchAdminOrders = async (token) => {
 export const validateOrder = async (orderId, token) => {
   const { data } = await api.post(
     `/admin/orders/${orderId}/validate`,
+    {},
+    { headers: { "X-Admin-Token": token } }
+  );
+  return data;
+};
+
+export const resendOrderLink = async (orderId, token) => {
+  const { data } = await api.post(
+    `/admin/orders/${orderId}/resend`,
+    {},
+    { headers: { "X-Admin-Token": token } }
+  );
+  return data;
+};
+
+export const verifyOrder = async (orderId, token) => {
+  const { data } = await api.post(
+    `/admin/orders/${orderId}/verify`,
+    {},
+    { headers: { "X-Admin-Token": token } }
+  );
+  return data;
+};
+
+export const refuseOrder = async (orderId, token) => {
+  const { data } = await api.post(
+    `/admin/orders/${orderId}/refuse`,
     {},
     { headers: { "X-Admin-Token": token } }
   );
