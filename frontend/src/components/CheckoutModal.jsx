@@ -248,173 +248,173 @@ export const CheckoutModal = ({
             <>
               {!paymentWindowOpened && (
                 <div className="space-y-5">
-              <div className="border border-[#E8B23A]/30 bg-[#E8B23A]/[0.04] rounded-sm p-5">
-                <div className="flex items-center justify-between gap-4 mb-3">
-                  <div>
-                    <p className="text-eyebrow text-[#E8B23A]">Résumé de commande</p>
-                    <p className="text-white/50 text-sm mt-1">{order.photos.length} photo(s) · {total} €</p>
+                  <div className="border border-[#E8B23A]/30 bg-[#E8B23A]/[0.04] rounded-sm p-5">
+                    <div className="flex items-center justify-between gap-4 mb-3">
+                      <div>
+                        <p className="text-eyebrow text-[#E8B23A]">Résumé de commande</p>
+                        <p className="text-white/50 text-sm mt-1">{order.photos.length} photo(s) · {total} €</p>
+                      </div>
+                      <div className="rounded-full bg-white/5 px-3 py-1 text-sm text-white/70">
+                        {PAYMENT_METHODS.find((m) => m.id === method)?.label}
+                      </div>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-sm bg-[#050505] p-4 border border-white/10">
+                        <p className="text-white/60 text-xs uppercase tracking-[0.18em] mb-2">Total</p>
+                        <p className="text-white font-semibold text-2xl">{total} €</p>
+                      </div>
+                      <div className="rounded-sm bg-[#050505] p-4 border border-white/10">
+                        <p className="text-white/60 text-xs uppercase tracking-[0.18em] mb-2">Album</p>
+                        <p className="text-white text-sm">{order.album_name || "Galerie"}</p>
+                      </div>
+                    </div>
                   </div>
-                  <div className="rounded-full bg-white/5 px-3 py-1 text-sm text-white/70">
-                    {PAYMENT_METHODS.find((m) => m.id === method)?.label}
-                  </div>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-sm bg-[#050505] p-4 border border-white/10">
-                    <p className="text-white/60 text-xs uppercase tracking-[0.18em] mb-2">Total</p>
-                    <p className="text-white font-semibold text-2xl">{total} €</p>
-                  </div>
-                  <div className="rounded-sm bg-[#050505] p-4 border border-white/10">
-                    <p className="text-white/60 text-xs uppercase tracking-[0.18em] mb-2">Album</p>
-                    <p className="text-white text-sm">{order.album_name || "Galerie"}</p>
-                  </div>
-                </div>
-              </div>
 
-              {Array.isArray(order.photos) && order.photos.length > 0 && (
-                <div className="border border-white/10 bg-[#050505] rounded-sm p-4">
-                  <p className="text-eyebrow text-[#E8B23A] mb-3">Photos sélectionnées</p>
-                  <div className="flex flex-wrap gap-2">
-                    {order.photos.slice(0, 8).map((p) => (
-                      <div key={p.id} className="w-14 h-14 rounded-sm overflow-hidden">
-                        <ProtectedImage
-                          src={resolveImageUrl(p.url)}
-                          alt={p.title || ""}
-                          wrapperClassName="w-full h-full"
-                          className="w-full h-full object-cover"
-                        />
+                  {Array.isArray(order.photos) && order.photos.length > 0 && (
+                    <div className="border border-white/10 bg-[#050505] rounded-sm p-4">
+                      <p className="text-eyebrow text-[#E8B23A] mb-3">Photos sélectionnées</p>
+                      <div className="flex flex-wrap gap-2">
+                        {order.photos.slice(0, 8).map((p) => (
+                          <div key={p.id} className="w-14 h-14 rounded-sm overflow-hidden">
+                            <ProtectedImage
+                              src={resolveImageUrl(p.url)}
+                              alt={p.title || ""}
+                              wrapperClassName="w-full h-full"
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                        ))}
+                        {order.photos.length > 8 && (
+                          <div className="w-14 h-14 rounded-sm bg-white/5 flex items-center justify-center text-white/60 text-xs">
+                            +{order.photos.length - 8}
+                          </div>
+                        )}
                       </div>
-                    ))}
-                    {order.photos.length > 8 && (
-                      <div className="w-14 h-14 rounded-sm bg-white/5 flex items-center justify-center text-white/60 text-xs">
-                        +{order.photos.length - 8}
+                    </div>
+                  )}
+
+                  <div className="border border-[#E8B23A]/30 bg-[#E8B23A]/[0.04] rounded-sm p-5">
+                    <div className="flex items-center gap-3 mb-3">
+                      <PaymentMethodIcon id={method} size={32} />
+                      <div>
+                        <p className="text-white font-medium">
+                          {PAYMENT_METHODS.find((m) => m.id === method)?.label}
+                        </p>
+                        <p className="text-white/50 text-xs">Commande #{order.id.slice(0, 8)}</p>
                       </div>
+                    </div>
+                    <p className="text-white/70 text-sm leading-relaxed mb-4">
+                      {instruction.instructions}
+                    </p>
+                    {instruction.kind === "phone" ? (
+                      <p
+                        data-testid="wero-phone"
+                        className="font-display text-3xl text-[#E8B23A] tracking-wider"
+                      >
+                        {instruction.phoneDisplay}
+                      </p>
+                    ) : (
+                      <p className="text-white/70 text-sm break-all">{instruction.url}</p>
                     )}
                   </div>
-                </div>
-              )}
 
-              <div className="border border-[#E8B23A]/30 bg-[#E8B23A]/[0.04] rounded-sm p-5">
-                <div className="flex items-center gap-3 mb-3">
-                  <PaymentMethodIcon id={method} size={32} />
-                  <div>
-                    <p className="text-white font-medium">
-                      {PAYMENT_METHODS.find((m) => m.id === method)?.label}
-                    </p>
-                    <p className="text-white/50 text-xs">Commande #{order.id.slice(0, 8)}</p>
-                  </div>
-                </div>
-                <p className="text-white/70 text-sm leading-relaxed mb-4">
-                  {instruction.instructions}
-                </p>
-                {instruction.kind === "phone" ? (
-                  <p
-                    data-testid="wero-phone"
-                    className="font-display text-3xl text-[#E8B23A] tracking-wider"
+                  <button
+                    data-testid="checkout-pay-action-btn"
+                    onClick={handlePayAction}
+                    className="w-full bg-gradient-to-r from-[#E8B23A] via-[#FFD66B] to-[#C8902A] text-black py-4 rounded-sm font-semibold tracking-wide hover:brightness-110 transition flex items-center justify-center gap-2"
                   >
-                    {instruction.phoneDisplay}
+                    Ouvrir {PAYMENT_METHODS.find((m) => m.id === method)?.label} <ArrowRight size={16} weight="bold" />
+                  </button>
+
+                  <p className="text-white/40 text-sm leading-relaxed text-center">
+                    Après l’ouverture du moyen de paiement, revenez ici pour confirmer votre paiement.
                   </p>
-                ) : (
-                  <p className="text-white/70 text-sm break-all">{instruction.url}</p>
-                )}
-              </div>
-
-              <button
-                data-testid="checkout-pay-action-btn"
-                onClick={handlePayAction}
-                className="w-full bg-gradient-to-r from-[#E8B23A] via-[#FFD66B] to-[#C8902A] text-black py-4 rounded-sm font-semibold tracking-wide hover:brightness-110 transition flex items-center justify-center gap-2"
-              >
-                Ouvrir {PAYMENT_METHODS.find((m) => m.id === method)?.label} <ArrowRight size={16} weight="bold" />
-              </button>
-
-              <p className="text-white/40 text-sm leading-relaxed text-center">
-                Après l’ouverture du moyen de paiement, revenez ici pour confirmer votre paiement.
-              </p>
                 </div>
               )}
 
               {paymentWindowOpened && (
-            <div className="space-y-5">
-              <div className="border border-[#E8B23A]/30 bg-[#E8B23A]/[0.04] rounded-sm p-5">
-                <p className="text-eyebrow text-[#E8B23A] mb-2">Avez-vous finalisé votre paiement ?</p>
-                <p className="text-white/60 text-sm leading-relaxed">
-                  Votre commande temporaire est conservée. Confirmez dès que possible pour recevoir votre lien HD sécurisé par email.
-                </p>
-              </div>
+                <div className="space-y-5">
+                  <div className="border border-[#E8B23A]/30 bg-[#E8B23A]/[0.04] rounded-sm p-5">
+                    <p className="text-eyebrow text-[#E8B23A] mb-2">Avez-vous finalisé votre paiement ?</p>
+                    <p className="text-white/60 text-sm leading-relaxed">
+                      Votre commande temporaire est conservée. Confirmez dès que possible pour recevoir votre lien HD sécurisé par email.
+                    </p>
+                  </div>
 
-              <div className="border border-white/10 bg-[#050505] rounded-sm p-4">
-                <p className="text-eyebrow text-[#E8B23A] mb-3">Détails de la commande</p>
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div>
-                    <p className="text-white/50 text-xs uppercase tracking-[0.18em] mb-1">Montant</p>
-                    <p className="text-white font-semibold">{total} €</p>
+                  <div className="border border-white/10 bg-[#050505] rounded-sm p-4">
+                    <p className="text-eyebrow text-[#E8B23A] mb-3">Détails de la commande</p>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div>
+                        <p className="text-white/50 text-xs uppercase tracking-[0.18em] mb-1">Montant</p>
+                        <p className="text-white font-semibold">{total} €</p>
+                      </div>
+                      <div>
+                        <p className="text-white/50 text-xs uppercase tracking-[0.18em] mb-1">Méthode</p>
+                        <p className="text-white font-semibold">{PAYMENT_METHODS.find((m) => m.id === method)?.label}</p>
+                      </div>
+                      <div>
+                        <p className="text-white/50 text-xs uppercase tracking-[0.18em] mb-1">Photos</p>
+                        <p className="text-white font-semibold">{order.photos.length}</p>
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-white/50 text-xs uppercase tracking-[0.18em] mb-1">Méthode</p>
-                    <p className="text-white font-semibold">{PAYMENT_METHODS.find((m) => m.id === method)?.label}</p>
-                  </div>
-                  <div>
-                    <p className="text-white/50 text-xs uppercase tracking-[0.18em] mb-1">Photos</p>
-                    <p className="text-white font-semibold">{order.photos.length}</p>
-                  </div>
+
+                  <button
+                    data-testid="checkout-after-payment-btn"
+                    onClick={async () => {
+                      if (!order) return;
+                      setSubmitting(true);
+                      try {
+                        const proof = proofText.trim();
+                        await confirmOrderPaid(order.id, proof ? { proof } : {});
+                        navigate(`/success/${order.id}`);
+                        close();
+                      } catch (err) {
+                        toast.error(
+                          err?.response?.data?.detail || "Erreur lors de la confirmation de paiement"
+                        );
+                      } finally {
+                        setSubmitting(false);
+                      }
+                    }}
+                    disabled={submitting}
+                    className="w-full bg-gradient-to-r from-[#E8B23A] via-[#FFD66B] to-[#C8902A] text-black py-4 rounded-sm font-semibold tracking-wide hover:brightness-110 transition disabled:opacity-50 text-sm"
+                  >
+                    {submitting ? "Traitement..." : "J’ai finalisé le paiement"}
+                  </button>
+
+                  <button
+                    data-testid="checkout-proof-btn"
+                    onClick={() => setProofOpen((v) => !v)}
+                    className="w-full border border-white/15 text-white hover:bg-white/5 py-4 rounded-sm transition-colors text-sm"
+                  >
+                    Envoyer une preuve (optionnel)
+                  </button>
+
+                  {proofOpen && (
+                    <div className="border border-white/10 bg-[#050505] rounded-sm p-4 space-y-3">
+                      <p className="text-eyebrow text-white/40">Preuve de paiement</p>
+                      <textarea
+                        data-testid="checkout-proof-input"
+                        value={proofText}
+                        onChange={(e) => setProofText(e.target.value)}
+                        placeholder="Lien vers la preuve / capture d'écran (optionnel)"
+                        className="w-full min-h-[90px] bg-[#0a0a0a] border border-white/10 focus:border-[#E8B23A]/60 outline-none text-white px-4 py-3 rounded-sm transition-colors"
+                      />
+                    </div>
+                  )}
+
+                  <button
+                    data-testid="checkout-pay-later-btn"
+                    onClick={() => {
+                      toast.success("Votre commande temporaire est conservée.");
+                      close();
+                    }}
+                    className="w-full border border-white/15 text-white hover:bg-white/5 py-4 rounded-sm transition-colors text-sm"
+                  >
+                    Je reviendrai plus tard
+                  </button>
                 </div>
-              </div>
-
-              <button
-                data-testid="checkout-after-payment-btn"
-                onClick={async () => {
-                  if (!order) return;
-                  setSubmitting(true);
-                  try {
-                    const proof = proofText.trim();
-                    await confirmOrderPaid(order.id, proof ? { proof } : {});
-                    navigate(`/success/${order.id}`);
-                    close();
-                  } catch (err) {
-                    toast.error(
-                      err?.response?.data?.detail || "Erreur lors de la confirmation de paiement"
-                    );
-                  } finally {
-                    setSubmitting(false);
-                  }
-                }}
-                disabled={submitting}
-                className="w-full bg-gradient-to-r from-[#E8B23A] via-[#FFD66B] to-[#C8902A] text-black py-4 rounded-sm font-semibold tracking-wide hover:brightness-110 transition disabled:opacity-50 text-sm"
-              >
-                {submitting ? "Traitement..." : "J’ai finalisé le paiement"}
-              </button>
-
-              <button
-                data-testid="checkout-proof-btn"
-                onClick={() => setProofOpen((v) => !v)}
-                className="w-full border border-white/15 text-white hover:bg-white/5 py-4 rounded-sm transition-colors text-sm"
-              >
-                Envoyer une preuve (optionnel)
-              </button>
-
-              {proofOpen && (
-                <div className="border border-white/10 bg-[#050505] rounded-sm p-4 space-y-3">
-                  <p className="text-eyebrow text-white/40">Preuve de paiement</p>
-                  <textarea
-                    data-testid="checkout-proof-input"
-                    value={proofText}
-                    onChange={(e) => setProofText(e.target.value)}
-                    placeholder="Lien vers la preuve / capture d'écran (optionnel)"
-                    className="w-full min-h-[90px] bg-[#0a0a0a] border border-white/10 focus:border-[#E8B23A]/60 outline-none text-white px-4 py-3 rounded-sm transition-colors"
-                  />
-                </div>
-              )}
-
-              <button
-                data-testid="checkout-pay-later-btn"
-                onClick={() => {
-                  toast.success("Votre commande temporaire est conservée.");
-                  close();
-                }}
-                className="w-full border border-white/15 text-white hover:bg-white/5 py-4 rounded-sm transition-colors text-sm"
-              >
-                Je reviendrai plus tard
-              </button>
-            </div>
               )}
             </>
           )}
