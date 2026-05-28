@@ -1150,6 +1150,9 @@ def _send_admin_notification_email(
     client_phone = (order.get("phone") or "").strip() or "—"
     proof = (order.get("proof") or "").strip() or "Aucune preuve fournie."
     album_name = order.get("album_name") or "Galerie"
+    order_time = order.get("created_at") or "—"
+    order_status = order.get("status") or "—"
+    photo_count = len(ordered_photos)
 
     photo_list_items = ""
     for p in ordered_photos:
@@ -1172,6 +1175,9 @@ def _send_admin_notification_email(
         <p style="margin:8px 0;"><strong style="color:#E8B23A;">Méthode de paiement :</strong> {order.get('payment_method','')}</p>
         <p style="margin:8px 0;"><strong style="color:#E8B23A;">Montant :</strong> <span style="color:#E8B23A;">{order.get('total','')} €</span></p>
         <p style="margin:8px 0;"><strong style="color:#E8B23A;">Album :</strong> {album_name}</p>
+        <p style="margin:8px 0;"><strong style="color:#E8B23A;">Nombre de photos :</strong> {photo_count}</p>
+        <p style="margin:8px 0;"><strong style="color:#E8B23A;">Heure de la commande :</strong> {order_time}</p>
+        <p style="margin:8px 0;"><strong style="color:#E8B23A;">Statut :</strong> {order_status}</p>
       </div>
 
       <div style="background:#0a0a0a;border:1px solid #222;padding:16px 16px;margin-bottom:18px;">

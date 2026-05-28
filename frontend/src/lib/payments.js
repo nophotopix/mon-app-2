@@ -43,7 +43,7 @@ export const buildPaymentInstruction = (methodId, total, config) => {
     case "wero":
       return {
         kind: "phone",
-        action: "Appeler / Copier le numéro",
+        action: "Ouvrir Wero",
         phone: config.wero_phone,
         phoneDisplay: config.wero_phone_display,
         instructions: `Ouvrez votre app bancaire Wero et envoyez ${total} € au ${config.wero_phone_display}.`,
