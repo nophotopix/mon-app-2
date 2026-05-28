@@ -25,6 +25,7 @@ export const CheckoutModal = ({
   const [proofText, setProofText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [order, setOrder] = useState(null);
+  const [paymentWindowOpened, setPaymentWindowOpened] = useState(false);
 
   if (!open) return null;
 
@@ -38,7 +39,7 @@ export const CheckoutModal = ({
     setOrder(null);
     setProofOpen(false);
     setProofText("");
-    setPaymentOpened(false);
+    setPaymentWindowOpened(false);
   };
 
   const close = () => {
@@ -82,6 +83,7 @@ export const CheckoutModal = ({
       navigator.clipboard?.writeText(instruction.phone).catch(() => {});
       toast.success(`Numéro Wero copié : ${instruction.phoneDisplay}`);
     }
+    setPaymentWindowOpened(true);
     setStep(4);
   };
 
@@ -329,7 +331,7 @@ export const CheckoutModal = ({
             </div>
           )}
 
-          {step === 4 && order && instruction && (
+          {step === 4 && paymentWindowOpened && order && instruction && (
             <div className="space-y-5">
               <div className="border border-[#E8B23A]/30 bg-[#E8B23A]/[0.04] rounded-sm p-5">
                 <p className="text-eyebrow text-[#E8B23A] mb-2">Avez-vous finalisé votre paiement ?</p>
