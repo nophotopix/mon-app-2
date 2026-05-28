@@ -245,7 +245,9 @@ export const CheckoutModal = ({
           )}
 
           {step === 3 && order && instruction && (
-            <div className="space-y-5">
+            <>
+              {!paymentWindowOpened && (
+                <div className="space-y-5">
               <div className="border border-[#E8B23A]/30 bg-[#E8B23A]/[0.04] rounded-sm p-5">
                 <div className="flex items-center justify-between gap-4 mb-3">
                   <div>
@@ -327,10 +329,10 @@ export const CheckoutModal = ({
               <p className="text-white/40 text-sm leading-relaxed text-center">
                 Après l’ouverture du moyen de paiement, revenez ici pour confirmer votre paiement.
               </p>
-            </div>
-          )}
+                </div>
+              )}
 
-          {paymentWindowOpened && order && instruction && (
+              {paymentWindowOpened && (
             <div className="space-y-5">
               <div className="border border-[#E8B23A]/30 bg-[#E8B23A]/[0.04] rounded-sm p-5">
                 <p className="text-eyebrow text-[#E8B23A] mb-2">Avez-vous finalisé votre paiement ?</p>
@@ -413,6 +415,8 @@ export const CheckoutModal = ({
                 Je reviendrai plus tard
               </button>
             </div>
+              )}
+            </>
           )}
         </div>
       </div>
