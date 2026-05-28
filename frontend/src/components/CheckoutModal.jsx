@@ -321,7 +321,7 @@ export const CheckoutModal = ({
                 onClick={handlePayAction}
                 className="w-full bg-gradient-to-r from-[#E8B23A] via-[#FFD66B] to-[#C8902A] text-black py-4 rounded-sm font-semibold tracking-wide hover:brightness-110 transition flex items-center justify-center gap-2"
               >
-                {instruction.action} <ArrowRight size={16} weight="bold" />
+                Ouvrir {PAYMENT_METHODS.find((m) => m.id === method)?.label} <ArrowRight size={16} weight="bold" />
               </button>
 
               <p className="text-white/40 text-sm leading-relaxed text-center">
