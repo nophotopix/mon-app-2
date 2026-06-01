@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
 import { Header } from "../components/Header";
 import { fetchOrder, resolveImageUrl, downloadFileUrl, confirmOrderPaid } from "../lib/api";
@@ -29,16 +29,17 @@ export default function Success() {
   const [proofText, setProofText] = useState("");
   const [confirmingPaid, setConfirmingPaid] = useState(false);
 
-  const load = async () => {
-    try {
-      const data = await fetchOrder(orderId);
-      setOrder(data);
-    } catch {
-      toast.error("Commande introuvable");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const load = useCallback(async () => {
+try {
+const data = await fetchOrder(orderId);
+setOrder(data);
+} catch {
+toast.error("Commande introuvable");
+} finally {
+setLoading(false);
+}
+}, [orderId]);
+
 
   useEffect(() => {
     load();
