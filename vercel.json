@@ -1,14 +1,6 @@
 {
-  "experimentalServices": {
-    "frontend": {
-      "root": "frontend",
-      "routePrefix": "/",
-      "framework": "create-react-app"
-    },
-    "backend": {
-      "root": "backend",
-      "entrypoint": "server:app",
-      "routePrefix": "/_/backend"
-    }
-  }
+ "installCommand": "cd frontend && npm install --legacy-peer-deps",
+"buildCommand": "cd frontend && npm run build",
+"outputDirectory": "frontend/build",
+"framework": "create-react-app"
 }
