@@ -53,14 +53,14 @@ export default function Success() {
       });
     }, 12000);
     return () => clearInterval(interval);
-  }, [orderId, load]);
+  }, [orderId]);
 
   useEffect(() => {
     if (pollCount > 0 && order?.status === "pending") {
       load();
     }
     // eslint-disable-next-line
-  }, [pollCount, order, load]);
+  }, [pollCount]);
 
   if (loading) {
     return (
