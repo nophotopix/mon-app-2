@@ -27,7 +27,7 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
-ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', '97140')
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD', 'Noclan97140$')
 PAYPAL_ME_HANDLE = os.environ.get('PAYPAL_ME_HANDLE', 'nophotopix')
 REVOLUT_ME_HANDLE = os.environ.get('REVOLUT_ME_HANDLE', 'nophotopix')
 WERO_PHONE = os.environ.get('WERO_PHONE', '+33760599312')
