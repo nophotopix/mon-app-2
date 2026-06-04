@@ -961,7 +961,9 @@ async def verify_order(
 order_id: str,
 x_admin_token: Optional[str] = Header(None),
 ):
-return await mark_order_paid(order_id, x_admin_token)
+_check_admin(x_admin_token)
+return await mark_order_paid(order_id)
+
 
 
 
