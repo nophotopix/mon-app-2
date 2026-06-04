@@ -1027,7 +1027,7 @@ const OrdersTab = ({
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-2 lg:min-w-[240px] lg:justify-end">
-                  {!isRefused && isCompleted && (
+                  {!isRefused && isDownloaded && (
                     <button
                       data-testid={`resend-order-${o.id}`}
                       disabled={actioningId === o.id}
@@ -1038,14 +1038,14 @@ const OrdersTab = ({
                       {actioningId === o.id ? "Envoi..." : "Renvoyer lien"}
                     </button>
                   )}
-                  {!isRefused && isCompleted && (
+                  {!isRefused && isDownloaded && (
                     <button
                       data-testid={`verify-order-${o.id}`}
                       onClick={() => onVerify(o.id)}
                       className="bg-gradient-to-r from-[#E8B23A] via-[#FFD66B] to-[#C8902A] text-black px-4 py-2.5 rounded-sm font-medium text-sm hover:brightness-110 transition disabled:opacity-50 flex items-center gap-2 justify-center"
                     >
                       <CheckCircle size={14} weight="fill" />
-                      {o.verified ? "Vérifié" : "Marquer vérifié"}
+                      {o.verified ? "Vérifiée" : "Transaction validée"}
                     </button>
                   )}
 
