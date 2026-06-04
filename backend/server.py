@@ -956,16 +956,13 @@ async def resend_order_email(
     return order
 
 
-@api_router.post("/admin/orders/{order_id}/verify", response_model=dict)
+@api_router.post("/admin/orders/{order_id}/verify", response_model=OrderWithPhotos)
 async def verify_order(
-    order_id: str,
-    x_admin_token: Optional[str] = Header(None),
+order_id: str,
+x_admin_token: Optional[str] = Header(None),
 ):
-    _check_admin(x_admin_token)
-    res = await db.orders.update_one({"id": order_id}, {"$set": {"verified": True}})
-    if res.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Commande introuvable")
-    return {"success": True, "verified": True}
+return await mark_order_paid(order_id, x_admin_token)
+
 
 
 @api_router.post("/admin/orders/{order_id}/refuse", response_model=OrderWithPhotos)
