@@ -37,20 +37,58 @@ export default function Gallery() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([fetchAlbums(), fetchPhotos(), fetchConfig()])
-      .then(([al, ph, cfg]) => {
-        setAlbums(Array.isArray(al) ? al : []);
-        setPhotos(Array.isArray(ph) ? ph : []);
-        setConfig((c) => ({ ...c, ...(cfg || {}) }));
-      })
-      .catch(() => {
-        setAlbums([]);
-        setPhotos([]);
-        toast.error("Impossible de charger la galerie");
-      })
-      .finally(() => setLoading(false));
-    // eslint-disable-next-line
-  }, []);
+let cancelled = false;
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const loadGallery = async () => {
+setLoading(true);
+
+for (let attempt = 1; attempt <= 3; attempt++) {
+try {
+const [al, ph, cfg] = await Promise.allSettled([
+fetchAlbums(),
+fetchPhotos(),
+fetchConfig(),
+]);
+
+if (cancelled) return;
+
+if (al.status === "fulfilled") {
+setAlbums(Array.isArray(al.value) ? al.value : []);
+}
+
+if (ph.status === "fulfilled" && Array.isArray(ph.value)) {
+setPhotos(ph.value);
+} else {
+throw new Error("Photos not loaded");
+}
+
+if (cfg.status === "fulfilled") {
+setConfig((c) => ({ ...c, ...(cfg.value || {}) }));
+}
+
+setLoading(false);
+return;
+} catch (e) {
+if (attempt < 3) {
+await wait(2000);
+} else {
+if (!cancelled) {
+toast.error("Impossible de charger la galerie");
+setLoading(false);
+}
+}
+}
+}
+};
+
+loadGallery();
+
+return () => {
+cancelled = true;
+};
+}, []);
 
   const toggle = (id) => {
     setSelected((prev) => {
