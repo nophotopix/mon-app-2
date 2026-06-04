@@ -1038,7 +1038,7 @@ const OrdersTab = ({
                       {actioningId === o.id ? "Envoi..." : "Renvoyer lien"}
                     </button>
                   )}
-                  {!isRefused && isDownloaded && (
+                  {!isRefused && !isDownloaded && (
                     <button
                       data-testid={`verify-order-${o.id}`}
                       onClick={() => onVerify(o.id)}
