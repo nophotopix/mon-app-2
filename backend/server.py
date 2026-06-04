@@ -967,6 +967,7 @@ return await mark_order_paid(order_id)
 
 
 
+
 @api_router.post("/admin/orders/{order_id}/refuse", response_model=OrderWithPhotos)
 async def refuse_order(
     order_id: str,
