@@ -1001,12 +1001,25 @@ async def refuse_order(
 
 
 @api_router.delete("/admin/orders/{order_id}")
-async def delete_order(order_id: str, x_admin_token: Optional[str] = Header(None)):
+async def delete_order(
+    order_id: str,
+    x_admin_token: Optional[str] = Header(None),
+):
     _check_admin(x_admin_token)
+
     res = await db.orders.delete_one({"id": order_id})
+
     if res.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Commande introuvable")
-    return {"success": True}
+        raise HTTPException(
+            status_code=404,
+            detail="Commande introuvable"
+)
+
+     return {
+         "success": True,
+         "deleted": True,
+         "id": order_id,
+}
 
 
 # ============= STRIPE PAYMENTS + DOWNLOAD =============
