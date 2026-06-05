@@ -1059,7 +1059,7 @@ const OrdersTab = ({
                             localStorage.getItem("nophotopix_admin_token")
                           );
 
-                          setOrders((prev) => prev.filter((order) => order.id !== o.id));
+                          window.location.reload();
                         }}
                         className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-sm text-sm transition-colors"
                      >
