@@ -962,8 +962,8 @@ order_id: str,
 x_admin_token: Optional[str] = Header(None),
 ):
     _check_admin(x_admin_token)
-    return await mark_order_paid(order_id)
-
+    body = OrderPaid(proof="Validation admin")
+    return await mark_order_paid(order_id, body, request)
 
 
 
