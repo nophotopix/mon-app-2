@@ -5,6 +5,7 @@ import {
   createAlbum,
   deleteAlbum,
   deletePhoto,
+  deleteOrder,
   fetchAdminOrders,
   fetchAlbum,
   fetchAlbums,
@@ -1039,14 +1040,29 @@ const OrdersTab = ({
                     </button>
                   )}
                   {true && (
-                    <button
-                      data-testid={`verify-order-${o.id}`}
-                      onClick={() => onVerify(o.id)}
-                      className="bg-gradient-to-r from-[#E8B23A] via-[#FFD66B] to-[#C8902A] text-black px-4 py-2.5 rounded-sm font-medium text-sm hover:brightness-110 transition disabled:opacity-50 flex items-center gap-2 justify-center"
-                    >
-                      <CheckCircle size={14} weight="fill" />
-                      {o.verified ? "Vérifiée" : "Transaction validée"}
-                    </button>
+                    <>
+                      <button
+                        data-testid={`verify-order-${o.id}`}
+                        onClick={() => onVerify(o.id)}
+                        className="bg-gradient-to-r from-[#E8B23A] via-[#FFD66B] to-[#C8902A] text-black px-4 py-2 rounded-sm font-medium text-sm transition-colors flex items-center gap-1 justify-center"
+                      >
+                        <CheckCircle size={14} weight="fill" />
+                        {o.verified ? "Vérifiée" : "Transaction validée"}
+                      </button>
+
+                      <button
+                        onClick={async () => {
+                          if (!window.confirm("Supprimer définitivement cette commande ?")) return;
+
+                          await deleteOrder(o.id, adminToken);
+
+                          setOrders((prev) => prev.filter((order) => order.id !== o.id));
+                        }}
+                        className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-sm text-sm transition-colors"
+                     >
+                        Supprimer
+                      </button>
+                    </>
                   )}
 
                   {!isRefused && (
