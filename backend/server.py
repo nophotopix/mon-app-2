@@ -956,14 +956,18 @@ async def resend_order_email(
     return order
 
 
-@api_router.post("/admin/orders/{order_id}/verify", response_model=OrderWithPhotos)
+@api_router.post("/admin/orders/{order_id}/verify")
 async def verify_order(
-order_id: str,
-x_admin_token: Optional[str] = Header(None),
+    order_id: str,
+    request: Request,
+    x_admin_token: Optional[str] = Header(None),
 ):
     _check_admin(x_admin_token)
+
     body = OrderPaid(proof="Validation admin")
+
     return await mark_order_paid(order_id, body, request)
+
 
 
 
