@@ -1015,7 +1015,7 @@ async def delete_order(
             detail="Commande introuvable"
 )
 
-     return {
+    return {
          "success": True,
          "deleted": True,
          "id": order_id,
