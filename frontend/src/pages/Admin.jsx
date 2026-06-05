@@ -1059,6 +1059,7 @@ const OrdersTab = ({
                             localStorage.getItem("nophotopix_admin_token")
                           );
 
+                          sessionStorage.setItem("admin_active_tab", "orders");
                           window.location.reload();
                         }}
                         className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-sm text-sm transition-colors"
