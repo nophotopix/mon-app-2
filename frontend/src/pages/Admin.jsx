@@ -694,7 +694,7 @@ const AlbumDetailTab = ({
                     alt={p.title || ""}
                     wrapperClassName="w-full h-full"
                     className="w-full h-full object-cover"
-                    watermark={false}
+                    watermark={true}
                   />
                   {isCover && (
                     <span className="absolute top-2 left-2 inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.2em] px-2 py-1 rounded-sm bg-[#E8B23A] text-black font-semibold">
