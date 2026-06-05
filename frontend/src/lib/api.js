@@ -253,9 +253,3 @@ export const deleteOrder = async (orderId, token) => {
   });
   return data;
 };
-export const deleteOrder = async (id, token) => {
-  const res = await api.delete(`/admin/orders/${id}`, {
-    headers: { "X-Admin-Token": token },
-  });
-  return res.data;
-};
