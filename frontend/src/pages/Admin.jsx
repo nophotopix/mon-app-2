@@ -1054,7 +1054,10 @@ const OrdersTab = ({
                         onClick={async () => {
                           if (!window.confirm("Supprimer définitivement cette commande ?")) return;
 
-                          await deleteOrder(o.id, adminToken);
+                          await deleteOrder(
+                            o.id,
+                            localStorage.getItem("nophotopix_admin_token")
+                          );
 
                           setOrders((prev) => prev.filter((order) => order.id !== o.id));
                         }}
