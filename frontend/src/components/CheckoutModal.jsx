@@ -80,11 +80,12 @@ export const CheckoutModal = ({
       window.open(instruction.url, "_blank", "noopener,noreferrer");
     } else if (instruction.kind === "phone") {
       navigator.clipboard.writeText(instruction.phone).catch(() => {});
+
       toast.success(
-        `Numéro Wero copié : ${instruction.phoneDisplay}. Ouvrez votre application bancaire/Wero et effectuez le paiement avec ce numéro.`
+        `Numéro Wero copié : ${instruction.phoneDisplay}. Ouvrez votre application bancaire compatible Wero et envoyez le montant demandé à ce numéro.`
       );
     }
-
+  };
   const goToSuccess = () => {
     if (order) navigate(`/success/${order.id}`);
     close();
