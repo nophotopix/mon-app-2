@@ -79,12 +79,11 @@ export const CheckoutModal = ({
     if (instruction.kind === "url") {
       window.open(instruction.url, "_blank", "noopener,noreferrer");
     } else if (instruction.kind === "phone") {
-      window.open(`tel:${instruction.phone}`, "_blank", "noopener,noreferrer");
-      navigator.clipboard?.writeText(instruction.phone).catch(() => {});
-      toast.success(`Numéro Wero copié : ${instruction.phoneDisplay}`);
+      navigator.clipboard.writeText(instruction.phone).catch(() => {});
+      toast.success(
+        `Numéro Wero copié : ${instruction.phoneDisplay}. Ouvrez votre application bancaire/Wero et effectuez le paiement avec ce numéro.`
+      );
     }
-    setPaymentWindowOpened(true);
-  };
 
   const goToSuccess = () => {
     if (order) navigate(`/success/${order.id}`);
