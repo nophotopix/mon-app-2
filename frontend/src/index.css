@@ -211,10 +211,10 @@ body {
    SVG embedded as data URL — repeats across the image. Rotated -28°.
    Opacity tuned to remain elegant on dark photos but unmistakable on light ones. */
 .watermark-layer {
-    background-color: rgba(0, 0, 0, 0.40);
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='260' height='180' viewBox='0 0 260 180'><g transform='rotate(-28 130 90)'><text x='10' y='60' font-family='Cormorant Garamond, Georgia, serif' font-size='34' font-weight='400' letter-spacing='1' fill='%23FFCC33' fill-opacity='1' stroke='%23ffffff' stroke-opacity='1' stroke-width='1.2'>NPP</text><text x='130' y='130' font-family='Cormorant Garamond, Georgia, serif' font-size='34' font-weight='400' letter-spacing='8' fill='%23ffffff' fill-opacity='0.34' stroke='%23E8B23A' stroke-opacity='0.38' stroke-width='0.5'>NPP</text></g></svg>");
+    background-color: rgba(0, 0, 0, 0.20);
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='260' height='180' viewBox='0 0 260 180'><g transform='rotate(-28 130 90)'><text x='10' y='60' font-family='Cormorant Garamond, Georgia, serif' font-size='34' font-weight='400' letter-spacing='1' fill='%23FFD700' fill-opacity='1' stroke='%23ffffff' stroke-opacity='1' stroke-width='2'>NPP</text><text x='130' y='130' font-family='Cormorant Garamond, Georgia, serif' font-size='34' font-weight='400' letter-spacing='8' fill='%23ffffff' fill-opacity='0.34' stroke='%23E8B23A' stroke-opacity='0.38' stroke-width='0.5'>NPP</text></g></svg>");
     background-repeat: repeat;
-    background-size: 140px 100px;
+    background-size: 100px 75px;
     mix-blend-mode: multiply;
     opacity: 0.95;
     transition: opacity 0.4s ease;
