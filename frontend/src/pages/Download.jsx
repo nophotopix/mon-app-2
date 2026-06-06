@@ -215,6 +215,7 @@ export default function Download() {
               key={p.id}
               data-testid={`download-photo-${p.id}`}
               href={downloadFileUrl(token, p.id)}
+              download
               className="group relative aspect-square bg-[#0a0a0a] overflow-hidden rounded-sm block"
             >
               <ProtectedImage
