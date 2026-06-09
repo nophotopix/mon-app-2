@@ -25,7 +25,7 @@ export const PhotoTile = ({ photo, index, selected, onOpen, onToggle }) => {
       aria-label={photo.title || "Photo"}
     >
       <ProtectedImage
-        src={resolveImageUrl(photo.url)}
+        src={resolveImageUrl(photo.thumb_url || photo.url)}
         alt={photo.title || "Photo"}
         wrapperClassName="w-full h-full"
         className={`w-full h-full object-cover transition-transform duration-700 ease-out ${
