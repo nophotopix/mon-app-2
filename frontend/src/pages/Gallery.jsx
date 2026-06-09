@@ -240,9 +240,11 @@ cancelled = true;
               {albums.length > 0 ? "Les albums" : "La collection"}
             </p>
             <h2 className="font-display text-3xl sm:text-4xl text-white mt-2">
-              {albums.length > 0
-                ? `${albums.length} album${albums.length > 1 ? "s" : ""} disponible${albums.length > 1 ? "s" : ""}`
-                : `${photos.length} clichés disponibles`}
+              {loading
+                ? "Chargement des albums..."
+                : albums.length > 0
+                  ? `${albums.length} album${albums.length > 1 ? "s" : ""} disponible${albums.length > 1 ? "s" : ""}`
+                  : `${photos.length} clichés disponibles`}
             </h2>
           </div>
           {albums.length === 0 && (
