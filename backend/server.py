@@ -386,17 +386,72 @@ async def _do_upload_photo(file: UploadFile, title: Optional[str], album_id: Opt
     photo_id = str(uuid.uuid4())
     filename = f"{photo_id}.{ext}"
     data = await file.read()
+
+    thumb_data = None
+    thumb_content_type = "image/jpeg"
+
+    try:
+        from PIL import Image
+        from io import BytesIO
+
+        img = Image.open(BytesIO(data))
+        img.thumbnail((600, 600))
+
+        buffer = BytesIO()
+        img.convert("RGB").save(
+            buffer,
+            format="JPEG",
+            quality=75,
+            optimize=True
+        )
+
+        thumb_data = buffer.getvalue()
+
+    except Exception:
+        thumb_data = None
+
     content_type = file.content_type or MIME_TYPES.get(ext, "application/octet-stream")
 
     # Try Emergent Object Storage first; fall back to local disk if unavailable.
     storage_path = f"{APP_NAME}/uploads/{filename}"
+
+    thumb_filename = f"{photo_id}_thumb.jpg"
+    thumb_storage_path = f"{APP_NAME}/uploads/{thumb_filename}"
+
     rel_url: str
-    upload_result = storage_put(storage_path, data, content_type) if EMERGENT_LLM_KEY else None
+    upload_result = storage_put(
+        storage_path, 
+        data, 
+        content_type
+    ) if EMERGENT_LLM_KEY else None
+
+    thumb_upload_result = (
+        storage_put(
+            thumb_storage_path,
+            thumb_data,
+            thumb_content_type
+     )
+     if EMERGENT_LLM_KEY and thumb_data
+     else None
+)
 
     if upload_result and upload_result.get("path"):
         # Persistent storage. URL is served via /api/files/{path:path}
         rel_url = f"/api/files/{upload_result['path']}"
         storage_kind = "object"
+
+        thumb_url = (
+            f"/api/files/{thumb_upload_result['path']}"
+            if thumb_upload_result and thumb_upload_result.get("path")
+            else rel_url
+        )
+        thumb_storage_kind = "object" if thumb_upload_result else storage_kind
+        thumb_storage_path_db = (
+            thumb_upload_result["path"]
+            if thumb_upload_result and thumb_upload_result.get("path")
+            else storage_path
+        )
+
     else:
         # Fallback: local filesystem (will not persist across Render restarts).
         dest = UPLOAD_DIR / filename
@@ -404,6 +459,11 @@ async def _do_upload_photo(file: UploadFile, title: Optional[str], album_id: Opt
             buffer.write(data)
         rel_url = f"/uploads/{filename}"
         storage_kind = "local"
+
+        thumb_url = rel_url
+        thumb_storage_kind = storage_kind
+        thumb_storage_path_db = storage_path
+
         logging.getLogger(__name__).warning(
             f"Photo {photo_id} stored locally (object storage unavailable)"
         )
@@ -419,6 +479,11 @@ async def _do_upload_photo(file: UploadFile, title: Optional[str], album_id: Opt
     # Persist storage_kind & path in DB for serving / future cleanup
     doc["storage_kind"] = storage_kind
     doc["storage_path"] = storage_path if storage_kind == "object" else f"uploads/{filename}"
+
+    doc["thumb_url"] = thumb_url
+    doc["thumb_storage_kind"] = thumb_storage_kind
+    doc["thumb_storage_path"] = thumb_storage_path_db
+
     await db.photos.insert_one(doc)
 
     # If this is the first photo in the album, auto-set it as cover.
